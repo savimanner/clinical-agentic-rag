@@ -15,7 +15,7 @@ class OpenRouterEmbeddings(Embeddings):
         api_key: str,
         model: str,
         base_url: str,
-        fallback_model: str = "openai/text-embedding-3-large",
+        fallback_model: str = "nvidia/llama-nemotron-embed-vl-1b-v2:free",
         referer: str | None = None,
         app_title: str | None = None,
     ) -> None:

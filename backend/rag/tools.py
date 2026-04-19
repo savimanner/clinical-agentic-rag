@@ -31,7 +31,7 @@ def build_rag_tools(source: KnowledgeSource):
         query: str,
         doc_ids: list[str] | None = None,
         k: int = 5,
-        mode: str = "mmr",
+        mode: str = "similarity",
     ) -> str:
         """Retrieve semantically relevant chunks from the local corpus."""
         chunks = source.retrieve_chunks(query, doc_ids=doc_ids, k=k, mode=mode)

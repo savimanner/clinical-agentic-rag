@@ -18,8 +18,8 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_model: str = "openai/gpt-4.1-mini"
-    openrouter_embedding_model: str = "openai/text-embedding-3-large"
+    openrouter_model: str = "nvidia/nemotron-3-super-120b-a12b:free"
+    openrouter_embedding_model: str = "nvidia/llama-nemotron-embed-vl-1b-v2:free"
     openrouter_referer: str = "http://localhost"
     openrouter_app_title: str = "fastapi-learning-rag"
 
