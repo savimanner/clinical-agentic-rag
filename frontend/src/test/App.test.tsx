@@ -278,6 +278,44 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Edit sources' })).not.toBeInTheDocument();
   });
 
+  it('keeps the first send visible while the assistant reply is pending', async () => {
+    const client = new FakeClient();
+    client.threads.clear();
+    const user = userEvent.setup();
+    let releaseResponse: VoidFunction = () => undefined;
+
+    client.appendMessage = vi.fn(async (threadId: string, payload: AppendMessageRequest) => {
+      client.appendMessageSpy(threadId, payload);
+      await new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+      return FakeClient.prototype.appendMessage.call(client, threadId, payload);
+    });
+
+    render(<App client={client} initialEntries={['/']} useMemoryRouter />);
+
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Summarize first-line therapy');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByDisplayValue('Summarize first-line therapy')).toBeInTheDocument();
+    expect(screen.getByText('1 messages in thread')).toBeInTheDocument();
+    expect(
+      screen.getByText('Summarize first-line therapy', {
+        selector: '.message-bubble.user p',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Assistant is thinking')).toBeInTheDocument();
+    expect(screen.queryByText('Fresh thread')).not.toBeInTheDocument();
+
+    releaseResponse();
+
+    expect(
+      await screen.findByText('Answer for: Summarize first-line therapy', {
+        selector: 'p',
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('opens evidence in the desktop pane when a citation chip is selected', async () => {
     const client = new FakeClient();
     const user = userEvent.setup();

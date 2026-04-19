@@ -257,22 +257,29 @@ button {
 .thread-header__identity {
   display: flex;
   align-items: flex-start;
+  flex: 1;
   gap: 14px;
+  min-width: 0;
 }
 
 .thread-header__titles {
   display: grid;
+  flex: 1;
   gap: 8px;
+  min-width: 0;
 }
 
 .thread-title-editor {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
 }
 
 .thread-title-editor__input {
-  width: min(100%, 480px);
+  flex: 1 1 320px;
+  min-width: 0;
   border: none;
   background: transparent;
   color: var(--ink);

@@ -14,8 +14,13 @@ import { useThreadDetail } from '../hooks/useThreadDetail';
 import { useThreads } from '../hooks/useThreads';
 import { buildThreadTitle } from '../lib/format';
 import type { AssistantApiClient } from '../lib/api';
-import type { Citation } from '../types/api';
+import type { Citation, ThreadDetail, ThreadMessage } from '../types/api';
 import '../styles.css';
+
+interface PendingUserMessage {
+  threadId: string;
+  message: ThreadMessage;
+}
 
 function Workspace() {
   const client = useApiClient();
@@ -28,6 +33,7 @@ function Workspace() {
   const [isSourceDrawerOpen, setIsSourceDrawerOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [debugEnabled, setDebugEnabled] = useState(false);
+  const [pendingUserMessage, setPendingUserMessage] = useState<PendingUserMessage | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
 
   const library = useLibrary();
@@ -48,6 +54,19 @@ function Workspace() {
   const canManageSources = threadDetail.data != null;
   const detailErrorMessage = threadDetail.error?.message ?? null;
   const canUseWorkspace = library.error == null && threads.error == null;
+  const displayThread = useMemo<ThreadDetail | null>(() => {
+    const thread = threadDetail.data;
+    if (!thread || !pendingUserMessage || pendingUserMessage.threadId !== thread.id) {
+      return thread;
+    }
+
+    return {
+      ...thread,
+      last_message_preview: pendingUserMessage.message.content,
+      message_count: thread.message_count + 1,
+      messages: [...thread.messages, pendingUserMessage.message],
+    };
+  }, [pendingUserMessage, threadDetail.data]);
 
   async function refreshThreadList() {
     startTransition(() => {
@@ -75,19 +94,36 @@ function Workspace() {
 
     try {
       let thread = threadDetail.data;
+      let createdThread = false;
 
       if (!thread) {
         thread = await client.createThread({ title: buildThreadTitle(content) });
+        createdThread = true;
+      }
+
+      setPendingUserMessage({
+        threadId: thread.id,
+        message: {
+          id: `pending-user-${thread.id}`,
+          role: 'user',
+          content,
+          created_at: new Date().toISOString(),
+        },
+      });
+
+      if (createdThread) {
         threadDetail.setData(thread);
         await refreshThreadList();
         navigate(`/threads/${thread.id}`);
       }
 
       const nextThread = await client.appendMessage(thread.id, { content, debug });
+      setPendingUserMessage(null);
       threadDetail.setData(nextThread);
       setActiveCitation(nextThread.messages.at(-1)?.citations?.[0] ?? null);
       await refreshThreadList();
     } catch (caught) {
+      setPendingUserMessage(null);
       setWorkspaceError(caught instanceof Error ? caught.message : 'Unable to send message.');
     } finally {
       setIsSending(false);
@@ -180,7 +216,7 @@ function Workspace() {
           onOpenRail={() => setIsRailOpen(true)}
           onOpenSources={() => setIsSourceDrawerOpen(true)}
           onRenameThread={handleRenameThread}
-          thread={threadDetail.data}
+          thread={displayThread}
         />
 
         {statusMessage ? (
@@ -195,7 +231,7 @@ function Workspace() {
               activeCitation={activeCitation}
               isBusy={isSending}
               onSelectCitation={(citation) => setActiveCitation(citation)}
-              thread={threadDetail.data}
+              thread={displayThread}
             />
 
             <MessageComposer
