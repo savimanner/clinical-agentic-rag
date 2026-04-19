@@ -301,4 +301,15 @@ describe('App', () => {
 
     expect(await screen.findByText('Hypertension Guideline and Diabetes Guideline')).toBeInTheDocument();
   });
+
+  it('keeps the mobile thread rail closed on a fresh workspace', async () => {
+    setMobile(true);
+    const client = new FakeClient();
+    client.threads.clear();
+
+    const { container } = render(<App client={client} initialEntries={['/']} useMemoryRouter />);
+
+    expect(await screen.findByRole('heading', { name: 'Open a new line of inquiry' })).toBeInTheDocument();
+    expect(container.querySelector('.thread-rail')).not.toHaveClass('open');
+  });
 });

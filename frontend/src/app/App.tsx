@@ -165,7 +165,7 @@ function Workspace() {
         activeScopeDocIds={activeScopeDocIds}
         activeThreadId={activeThreadId}
         isLoading={threads.isLoading}
-        isOpen={isRailOpen || (!activeThreadId && isMobile)}
+        isOpen={isRailOpen}
         library={documents}
         onClose={() => setIsRailOpen(false)}
         onCreateThread={() => void handleCreateThread()}
