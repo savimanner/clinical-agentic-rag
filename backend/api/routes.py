@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from backend.api.schemas import (
@@ -15,6 +17,7 @@ from backend.api.schemas import (
 
 
 router = APIRouter()
+OPENROUTER_TIMEOUT_RE = re.compile(r"code['\"]?\s*:\s*524")
 
 
 def _validate_doc_ids(runtime, doc_ids: list[str] | None) -> list[str]:
@@ -24,6 +27,18 @@ def _validate_doc_ids(runtime, doc_ids: list[str] | None) -> list[str]:
             raise HTTPException(status_code=422, detail=f"Unknown doc_id: {doc_id}")
         validated.append(doc_id)
     return validated
+
+
+def _raise_for_upstream_error(exc: Exception) -> None:
+    message = str(exc)
+    if "Response validation failed" in message and OPENROUTER_TIMEOUT_RE.search(message):
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=(
+                "The upstream OpenRouter model timed out (code 524). "
+                "Retry the request or switch to a faster chat model."
+            ),
+        ) from exc
 
 
 @router.get("/api/health", response_model=HealthResponse)
@@ -118,6 +133,7 @@ def append_thread_message(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - surfaced in manual runs
+        _raise_for_upstream_error(exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="Thread not found.")
@@ -136,5 +152,6 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
             debug=payload.debug,
         )
     except Exception as exc:  # pragma: no cover - surfaced in manual runs
+        _raise_for_upstream_error(exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return ChatResponse.model_validate(result)

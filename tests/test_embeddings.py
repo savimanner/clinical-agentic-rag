@@ -16,8 +16,8 @@ class FakeEmbeddingsAPI:
     def __init__(self):
         self.calls = []
 
-    def create(self, *, model, input):
-        self.calls.append((model, list(input)))
+    def create(self, *, model, input, encoding_format):
+        self.calls.append((model, list(input), encoding_format))
         if model == "bad-model":
             raise ValueError("No embedding data received")
         return DummyResponse([DummyItem([0.1, 0.2], idx) for idx, _ in enumerate(input)])
@@ -42,6 +42,6 @@ def test_openrouter_embeddings_fall_back_when_primary_model_returns_no_vectors()
 
     assert result == [0.1, 0.2]
     assert fake_client.embeddings.calls == [
-        ("bad-model", ["hello"]),
-        ("openai/text-embedding-3-large", ["hello"]),
+        ("bad-model", ["hello"], "float"),
+        ("openai/text-embedding-3-large", ["hello"], "float"),
     ]

@@ -29,7 +29,11 @@ class OpenRouterEmbeddings(Embeddings):
         self._client = OpenAI(api_key=api_key, base_url=base_url, default_headers=headers or None)
 
     def _request_embeddings(self, model: str, texts: list[str]) -> list[list[float]]:
-        response = self._client.embeddings.create(model=model, input=texts)
+        response = self._client.embeddings.create(
+            model=model,
+            input=texts,
+            encoding_format="float",
+        )
         return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
 
     def _embed_batch(self, texts: Iterable[str]) -> list[list[float]]:

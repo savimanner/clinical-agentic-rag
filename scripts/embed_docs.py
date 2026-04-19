@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 import chromadb
+from chromadb.errors import InvalidArgumentError
 
 from backend.content.catalog import ContentCatalog
 from backend.content.manifest import iso_utc_now, refresh_manifest
@@ -16,6 +17,22 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--force", action="store_true", help="Replace existing rows for the same chunk ids.")
     return parser.parse_args()
+
+
+def replace_document_embeddings(collection, *, doc_id: str, ids: list[str], vectors: list[list[float]], metadatas: list[dict], documents: list[str], force: bool) -> None:
+    if force:
+        collection.delete(where={"doc_id": doc_id})
+
+    collection.upsert(
+        ids=ids,
+        embeddings=vectors,
+        metadatas=metadatas,
+        documents=documents,
+    )
+
+
+def is_dimension_mismatch(exc: InvalidArgumentError) -> bool:
+    return "expecting embedding with dimension of" in str(exc)
 
 
 def main() -> None:
@@ -35,6 +52,7 @@ def main() -> None:
     settings.chroma_directory.mkdir(parents=True, exist_ok=True)
     client = chromadb.PersistentClient(path=str(settings.chroma_directory))
     collection = client.get_or_create_collection(name=settings.chroma_collection_name)
+    collection_recreated = False
 
     indexed_at = iso_utc_now()
     for document in catalog.list_documents():
@@ -44,9 +62,6 @@ def main() -> None:
             continue
 
         ids = [record["chunk_id"] for record in records]
-        if args.force:
-            collection.delete(ids=ids)
-
         payload_texts = [record["search_text"] for record in records]
         vectors = embeddings.embed_documents(payload_texts)
         metadatas = [
@@ -65,12 +80,45 @@ def main() -> None:
         ]
         documents = [record["text"] for record in records]
 
-        collection.upsert(
-            ids=ids,
-            embeddings=vectors,
-            metadatas=metadatas,
-            documents=documents,
-        )
+        try:
+            replace_document_embeddings(
+                collection,
+                doc_id=document.doc_id,
+                ids=ids,
+                vectors=vectors,
+                metadatas=metadatas,
+                documents=documents,
+                force=args.force,
+            )
+        except InvalidArgumentError as exc:
+            if not is_dimension_mismatch(exc):
+                raise
+            if not args.force:
+                raise SystemExit(
+                    "Chroma collection embedding dimension does not match the current "
+                    "OPENROUTER_EMBEDDING_MODEL. Re-run with --force to rebuild the collection."
+                ) from exc
+            if collection_recreated:
+                raise SystemExit(
+                    "Chroma collection dimension mismatch persisted after a forced rebuild. "
+                    "Verify that one embedding model is used consistently for the whole run."
+                ) from exc
+
+            print(
+                "Embedding dimension changed; recreating the Chroma collection before continuing."
+            )
+            client.delete_collection(name=settings.chroma_collection_name)
+            collection = client.get_or_create_collection(name=settings.chroma_collection_name)
+            collection_recreated = True
+            replace_document_embeddings(
+                collection,
+                doc_id=document.doc_id,
+                ids=ids,
+                vectors=vectors,
+                metadatas=metadatas,
+                documents=documents,
+                force=False,
+            )
         refresh_manifest(
             settings.data_root / document.doc_id,
             embedding_model=settings.openrouter_embedding_model,

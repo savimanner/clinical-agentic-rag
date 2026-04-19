@@ -40,8 +40,11 @@ class FakeCatalog:
 @dataclass
 class FakeAgent:
     calls: list[dict] = field(default_factory=list)
+    error: Exception | None = None
 
     def answer_question(self, question: str, *, doc_ids=None, debug=False, prior_turns=None):
+        if self.error is not None:
+            raise self.error
         self.calls.append(
             {
                 "question": question,
@@ -174,6 +177,19 @@ def test_api_health_library_and_chat(tmp_path: Path):
     assert chat.json()["debug_trace"][0]["step"] == "planner"
 
 
+def test_chat_returns_gateway_timeout_for_openrouter_524_validation_error(tmp_path: Path):
+    client, runtime = build_test_client(tmp_path)
+    runtime.agent.error = RuntimeError(
+        "Response validation failed: body.choices Field required "
+        "[type=missing, input_value={'error': {'message': 'Provider timed out', 'code': 524}}, input_type=dict]"
+    )
+
+    response = client.post("/api/chat", json={"question": "What is this?"})
+
+    assert response.status_code == 504
+    assert "timed out" in response.json()["detail"]
+
+
 def test_thread_api_crud_and_append_message(tmp_path: Path):
     client, runtime = build_test_client(tmp_path)
 
@@ -214,6 +230,24 @@ def test_thread_api_crud_and_append_message(tmp_path: Path):
     assert deleted.status_code == 204
     assert missing.status_code == 404
     assert runtime.agent.calls[0]["doc_ids"] == ["demo-guideline"]
+
+
+def test_thread_append_returns_gateway_timeout_for_openrouter_524_validation_error(tmp_path: Path):
+    client, runtime = build_test_client(tmp_path)
+    runtime.agent.error = RuntimeError(
+        "Response validation failed: body.id Field required "
+        "[type=missing, input_value={'error': {'message': 'Provider timed out', 'code': 524}}, input_type=dict]"
+    )
+
+    created = client.post("/api/threads", json={})
+    thread_id = created.json()["id"]
+    response = client.post(
+        f"/api/threads/{thread_id}/messages",
+        json={"message": "What is this guideline about?"},
+    )
+
+    assert response.status_code == 504
+    assert "timed out" in response.json()["detail"]
 
 
 def test_thread_scope_update_persists_and_passes_prior_turns(tmp_path: Path):
