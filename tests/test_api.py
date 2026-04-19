@@ -6,9 +6,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from backend.agent.graph import AgentDependencies
+from backend.agent.runner import AgentRunner
+from backend.agent.schemas import AnswerDraft, EvidenceGrade
 from backend.api.app import create_app
 from backend.content.catalog import DocumentSummary
 from backend.core.settings import Settings
+from backend.rag.models import RetrievedChunk
+from backend.rag.retrieval import RetrievalResult
 from backend.threads import LocalThreadStore, ThreadService
 
 
@@ -70,6 +75,45 @@ class FakeRuntime:
     thread_service: ThreadService
 
 
+class StructuredResponder:
+    def __init__(self, parent, schema):
+        self.parent = parent
+        self.schema = schema
+
+    def invoke(self, _prompt):
+        if self.schema is EvidenceGrade:
+            return self.parent.grade_response
+        return self.parent.answer_response
+
+
+class FakeChatModel:
+    def __init__(self, grade_response, answer_response):
+        self.grade_response = grade_response
+        self.answer_response = answer_response
+
+    def with_structured_output(self, schema):
+        return StructuredResponder(self, schema)
+
+
+class FakeRetrievalPipeline:
+    def __init__(self, top_chunks):
+        self.top_chunks = top_chunks
+
+    def retrieve(self, query: str, *, doc_ids=None):
+        return RetrievalResult(
+            query=query,
+            candidates=self.top_chunks,
+            top_chunks=self.top_chunks,
+            debug={
+                "lexical_hit_count": len(self.top_chunks),
+                "dense_hit_count": len(self.top_chunks),
+                "candidate_count": len(self.top_chunks),
+                "top_chunk_ids": [chunk.chunk_id for chunk in self.top_chunks],
+                "rerank_reasoning": "fake",
+            },
+        )
+
+
 def build_test_client(tmp_path: Path) -> tuple[TestClient, FakeRuntime]:
     thread_store = LocalThreadStore(tmp_path / "storage" / "threads")
     agent = FakeAgent()
@@ -85,6 +129,35 @@ def build_test_client(tmp_path: Path) -> tuple[TestClient, FakeRuntime]:
     )
     app = create_app(runtime=runtime)
     return TestClient(app), runtime
+
+
+def build_real_agent_client(tmp_path: Path, monkeypatch, *, top_chunks, grade_response, answer_response):
+    thread_store = LocalThreadStore(tmp_path / "storage" / "threads")
+    settings = Settings(
+        openrouter_api_key="test-key",
+        storage_root=tmp_path / "storage",
+    )
+    monkeypatch.setattr(
+        "backend.agent.graph.get_chat_model",
+        lambda _settings: FakeChatModel(grade_response, answer_response),
+    )
+    agent = AgentRunner(
+        AgentDependencies(
+            settings=settings,
+            catalog=FakeCatalog(),
+            retrieval_pipeline=FakeRetrievalPipeline(top_chunks),
+            tools=[],
+            tool_registry={},
+        )
+    )
+    runtime = FakeRuntime(
+        settings=settings,
+        catalog=FakeCatalog(),
+        agent=agent,
+        thread_store=thread_store,
+        thread_service=ThreadService(thread_store, agent),
+    )
+    return TestClient(create_app(runtime=runtime))
 
 
 def test_api_health_library_and_chat(tmp_path: Path):
@@ -197,3 +270,47 @@ def test_create_app_serves_built_spa_when_present(tmp_path: Path):
     assert "spa-shell" in thread_route.text
     assert asset.status_code == 200
     assert "console.log('ok');" in asset.text
+
+
+def test_api_chat_uses_real_agent_runner_and_conservative_fallback(tmp_path: Path, monkeypatch):
+    client = build_real_agent_client(
+        tmp_path,
+        monkeypatch,
+        top_chunks=[],
+        grade_response=EvidenceGrade(sufficient=False, reasoning="No evidence."),
+        answer_response=AnswerDraft(answer="unused"),
+    )
+
+    response = client.post("/api/chat", json={"question": "What is the dose?", "debug": True})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "I don't know based on the indexed guidelines."
+    assert response.json()["citations"] == []
+
+
+def test_api_chat_returns_citations_from_real_agent_runner(tmp_path: Path, monkeypatch):
+    client = build_real_agent_client(
+        tmp_path,
+        monkeypatch,
+        top_chunks=[
+            RetrievedChunk(
+                doc_id="demo-guideline",
+                chunk_id="demo-guideline::chunk_0000",
+                chunk_index=0,
+                breadcrumbs="Treatment",
+                text="Use ibuprofen for mild pain.",
+                source_path="demo.md",
+            )
+        ],
+        grade_response=EvidenceGrade(sufficient=True, reasoning="Enough evidence."),
+        answer_response=AnswerDraft(
+            answer="Use ibuprofen for mild pain.",
+            cited_chunk_ids=["demo-guideline::chunk_0000"],
+        ),
+    )
+
+    response = client.post("/api/chat", json={"question": "What should I use for mild pain?"})
+
+    assert response.status_code == 200
+    assert response.json()["used_doc_ids"] == ["demo-guideline"]
+    assert response.json()["citations"][0]["chunk_id"] == "demo-guideline::chunk_0000"

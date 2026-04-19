@@ -52,6 +52,7 @@ class AgentRunner:
             "retrieval_attempt_count": 0,
             "retrieval_attempted": False,
             "last_tool_names": [],
+            "retrieved_chunks": [],
             "trace": [
                 {
                     "step": "user",

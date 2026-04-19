@@ -30,6 +30,9 @@ class Settings(BaseSettings):
 
     retrieval_k: int = 5
     retrieval_fetch_k: int = 12
+    retrieval_lexical_k: int = 24
+    retrieval_candidate_k: int = 32
+    retrieval_final_k: int = 8
     chunk_target_chars: int = 1000
     chunk_overlap_chars: int = 120
     chunk_hard_max_chars: int = 1600

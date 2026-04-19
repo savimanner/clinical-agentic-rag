@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from pathlib import Path
 from typing import Protocol
 
 from langchain_core.documents import Document
@@ -21,6 +20,7 @@ class KnowledgeSource(Protocol):
     def search_library(self, query: str) -> list[LibraryHit]: ...
     def get_document_outline(self, doc_id: str) -> OutlineResponse: ...
     def retrieve_chunks(self, query: str, *, doc_ids: list[str] | None = None, k: int = 5, mode: str = "mmr") -> list[RetrievedChunk]: ...
+    def lexical_search(self, query: str, *, doc_ids: list[str] | None = None, k: int = 5) -> list[RetrievedChunk]: ...
     def fetch_chunk_neighbors(self, chunk_ids: list[str], *, window: int = 1) -> list[RetrievedChunk]: ...
 
 
@@ -93,6 +93,18 @@ class LocalCorpusSource:
             score=score,
         )
 
+    @staticmethod
+    def _record_to_chunk(record: dict, score: float | None = None) -> RetrievedChunk:
+        return RetrievedChunk(
+            doc_id=str(record["doc_id"]),
+            chunk_id=str(record["chunk_id"]),
+            chunk_index=int(record["chunk_index"]),
+            breadcrumbs=str(record.get("breadcrumbs", "")),
+            text=str(record["text"]),
+            source_path=str(record["source_path"]),
+            score=score,
+        )
+
     def retrieve_chunks(
         self,
         query: str,
@@ -118,6 +130,58 @@ class LocalCorpusSource:
             filter=chroma_filter,
         )
         return [self._doc_to_chunk(doc) for doc in docs]
+
+    def lexical_search(
+        self,
+        query: str,
+        *,
+        doc_ids: list[str] | None = None,
+        k: int = 5,
+    ) -> list[RetrievedChunk]:
+        query_tokens = self._tokens(query)
+        if not query_tokens:
+            return []
+
+        normalized_query = " ".join(query.lower().split())
+        target_doc_ids = doc_ids or [document.doc_id for document in self.catalog.list_documents()]
+        scored: list[tuple[float, RetrievedChunk]] = []
+
+        for doc_id in target_doc_ids:
+            lexical_index = self.catalog.load_lexical_index(doc_id)
+            if lexical_index is None:
+                continue
+            chunk_lengths = {document.chunk_id: document.length for document in lexical_index.documents}
+            doc_count = max(len(lexical_index.documents), 1)
+            chunk_records = self._chunk_map_for_doc(doc_id)
+
+            scores: dict[str, float] = {}
+            for token in query_tokens:
+                postings = lexical_index.postings.get(token)
+                if not postings:
+                    continue
+                doc_frequency = len(postings)
+                idf = max(0.0, ((doc_count - doc_frequency + 0.5) / (doc_frequency + 0.5)))
+                idf = 1.0 + idf
+                for posting in postings:
+                    length = max(chunk_lengths.get(posting.chunk_id, 0), 1)
+                    numerator = posting.tf * (1.5 + 1.0)
+                    denominator = posting.tf + 1.5 * (
+                        1.0 - 0.75 + 0.75 * (length / max(lexical_index.avg_document_length, 1.0))
+                    )
+                    scores[posting.chunk_id] = scores.get(posting.chunk_id, 0.0) + idf * (numerator / denominator)
+
+            for chunk_id, score in scores.items():
+                record = chunk_records.get(chunk_id)
+                if not record:
+                    continue
+                phrase_boost = 0.0
+                search_text = " ".join(str(record["search_text"]).lower().split())
+                if normalized_query and normalized_query in search_text:
+                    phrase_boost = 2.5
+                scored.append((score + phrase_boost, self._record_to_chunk(record, score=round(score + phrase_boost, 4))))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [chunk for _, chunk in scored[:k]]
 
     @lru_cache(maxsize=128)
     def _chunk_map_for_doc(self, doc_id: str) -> dict[str, dict]:

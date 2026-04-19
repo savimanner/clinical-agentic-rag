@@ -25,5 +25,6 @@ class AgentState(TypedDict, total=False):
     last_tool_names: list[str]
     evidence_ready: bool
     refined_question: str | None
+    retrieved_chunks: list[dict[str, Any]]
     final_payload: dict[str, Any] | None
     trace: Annotated[list[dict[str, Any]], merge_trace]

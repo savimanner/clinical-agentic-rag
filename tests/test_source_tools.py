@@ -42,6 +42,16 @@ def make_data_root(tmp_path: Path) -> Path:
         + "\n",
         encoding="utf-8",
     )
+    (guideline_dir / "30_chunks" / "demo.lexical.json").write_text(
+        '{"format":"bm25-v1","doc_id":"demo-guideline","chunk_count":3,"avg_document_length":2.0,'
+        '"documents":['
+        '{"chunk_id":"demo-guideline::chunk_0000","doc_id":"demo-guideline","chunk_index":0,"breadcrumbs":"Intro","source_path":"demo.md","length":2},'
+        '{"chunk_id":"demo-guideline::chunk_0001","doc_id":"demo-guideline","chunk_index":1,"breadcrumbs":"Intro","source_path":"demo.md","length":2},'
+        '{"chunk_id":"demo-guideline::chunk_0002","doc_id":"demo-guideline","chunk_index":2,"breadcrumbs":"Treatment","source_path":"demo.md","length":2}'
+        '],"postings":{"intro":[{"chunk_id":"demo-guideline::chunk_0000","tf":1},{"chunk_id":"demo-guideline::chunk_0001","tf":1}],'
+        '"treatment":[{"chunk_id":"demo-guideline::chunk_0002","tf":1}]}}',
+        encoding="utf-8",
+    )
     return data_root
 
 
@@ -55,10 +65,12 @@ def test_local_corpus_source_search_neighbors_and_retrieve(tmp_path: Path):
     hits = source.search_library("demo guideline")
     outline = source.get_document_outline("demo-guideline")
     chunks = source.retrieve_chunks("question", doc_ids=["demo-guideline"], k=2)
+    lexical = source.lexical_search("treatment", doc_ids=["demo-guideline"], k=2)
     neighbors = source.fetch_chunk_neighbors(["demo-guideline::chunk_0001"], window=1)
 
     assert hits[0].doc_id == "demo-guideline"
     assert "Intro" in outline.outline
     assert chunks[0].chunk_id == "demo-guideline::chunk_0000"
+    assert lexical[0].chunk_id == "demo-guideline::chunk_0002"
     assert len(neighbors) == 3
     assert source._vector_store.last_call["filter"] == {"doc_id": "demo-guideline"}

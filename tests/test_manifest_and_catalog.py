@@ -19,6 +19,12 @@ def test_manifest_and_catalog_reflect_local_guideline_layout(tmp_path: Path):
         '"text":"Hello","search_text":"Demo\\nHello","text_hash":"abc","metadata":{}}\n',
         encoding="utf-8",
     )
+    (guideline_dir / "30_chunks" / "demo.lexical.json").write_text(
+        '{"format":"bm25-v1","doc_id":"demo-guideline","chunk_count":1,"avg_document_length":2.0,'
+        '"documents":[{"chunk_id":"demo-guideline::chunk_0000","doc_id":"demo-guideline","chunk_index":0,'
+        '"breadcrumbs":"Demo","source_path":"demo.md","length":2}],"postings":{"demo":[{"chunk_id":"demo-guideline::chunk_0000","tf":1}]}}',
+        encoding="utf-8",
+    )
 
     manifest = build_manifest(guideline_dir)
     save_manifest(guideline_dir, manifest)
@@ -31,3 +37,5 @@ def test_manifest_and_catalog_reflect_local_guideline_layout(tmp_path: Path):
     assert len(documents) == 1
     assert documents[0].doc_id == "demo-guideline"
     assert documents[0].chunk_count == 1
+    assert documents[0].lexical_index_file.endswith("demo.lexical.json")
+    assert catalog.load_lexical_index("demo-guideline").chunk_count == 1

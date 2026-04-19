@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from backend.content.chunking import load_chunk_jsonl
+from backend.content.chunking import load_chunk_jsonl, load_lexical_index
 from backend.content.manifest import DocumentManifest, build_manifest, load_manifest
 
 
@@ -15,6 +15,7 @@ class DocumentSummary(BaseModel):
     source_pdf: str | None = None
     primary_markdown: str | None = None
     chunk_file: str | None = None
+    lexical_index_file: str | None = None
     chunk_count: int = 0
     indexed: bool = False
     manifest_path: str
@@ -43,6 +44,7 @@ class ContentCatalog:
                 or manifest.stages["canonical_markdown"].path
             )
             chunk_file = manifest.stages["chunk_jsonl"].path
+            lexical_index_file = manifest.stages["lexical_index"].path
             documents.append(
                 DocumentSummary(
                     doc_id=manifest.doc_id,
@@ -51,6 +53,7 @@ class ContentCatalog:
                     source_pdf=manifest.source_pdf,
                     primary_markdown=primary_markdown,
                     chunk_file=chunk_file,
+                    lexical_index_file=lexical_index_file,
                     chunk_count=manifest.index.chunk_count,
                     indexed=bool(manifest.index.indexed_at),
                     manifest_path=str(guideline_dir / "manifest.json"),
@@ -82,3 +85,12 @@ class ContentCatalog:
                 breadcrumbs.append(value)
                 seen.add(value)
         return breadcrumbs
+
+    def load_lexical_index(self, doc_id: str):
+        summary = self.get_document(doc_id)
+        if not summary or not summary.lexical_index_file:
+            return None
+        lexical_path = Path(summary.lexical_index_file)
+        if not lexical_path.exists():
+            return None
+        return load_lexical_index(lexical_path)
