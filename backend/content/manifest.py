@@ -85,6 +85,7 @@ def build_manifest(guideline_dir: Path) -> DocumentManifest:
     canonical_md = _first_file(guideline_dir / "10_canonical_md", "*.md")
     normalized_md = _first_file(guideline_dir / "20_normalized_md", "*.md")
     chunk_jsonl = _first_file(guideline_dir / "30_chunks", "*.jsonl")
+    lexical_index = _first_file(guideline_dir / "30_chunks", "*.lexical.json")
 
     manifest = DocumentManifest(
         doc_id=doc_id,
@@ -98,6 +99,7 @@ def build_manifest(guideline_dir: Path) -> DocumentManifest:
             "canonical_markdown": _stage_from_file(canonical_md),
             "normalized_markdown": _stage_from_file(normalized_md),
             "chunk_jsonl": _stage_from_file(chunk_jsonl),
+            "lexical_index": _stage_from_file(lexical_index),
         },
         index=existing.index if existing else IndexStatus(),
         updated_at=iso_utc_now(),

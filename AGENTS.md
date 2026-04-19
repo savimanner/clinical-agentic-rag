@@ -32,6 +32,8 @@ Run these from the repository root as needed:
    - `./.venv/bin/python scripts/chunk_markdown.py --force`
 4. Embed chunks into Chroma:
    - `./.venv/bin/python scripts/embed_docs.py`
+   - Use `./.venv/bin/python scripts/embed_docs.py --force` after chunk changes or embedding-model changes.
+   - If the embedding model dimension differs from the existing Chroma collection, the force rebuild path will recreate the collection before re-indexing.
 
 ## Data and indexing assumptions
 
@@ -39,6 +41,7 @@ Run these from the repository root as needed:
 - Embeddings must be persisted in `storage/chroma/`; they should not depend on a browser session.
 - The application should read from the persisted Chroma store at startup.
 - If chunk files change, re-run `scripts/embed_docs.py`.
+- If `OPENROUTER_EMBEDDING_MODEL` changes, re-run `scripts/embed_docs.py --force` so the persisted Chroma index matches the embedding dimension.
 
 ## Environment variables
 
@@ -54,6 +57,7 @@ Expected in `.env`:
 Recommended embedding model:
 
 - `OPENROUTER_EMBEDDING_MODEL=openai/text-embedding-3-large`
+- The repo has also been verified with `OPENROUTER_EMBEDDING_MODEL=nvidia/llama-nemotron-embed-vl-1b-v2:free`.
 
 ## Agent/runtime notes
 

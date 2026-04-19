@@ -8,6 +8,7 @@ from backend.agent.runner import AgentRunner
 from backend.content.catalog import ContentCatalog
 from backend.core.settings import Settings, get_settings
 from backend.core.tracing import configure_langsmith
+from backend.rag.retrieval import HybridRetrievalPipeline
 from backend.rag.sources import LocalCorpusSource
 from backend.rag.tools import build_rag_tools
 from backend.threads import LocalThreadStore, ThreadService
@@ -28,11 +29,13 @@ def build_runtime(settings: Settings | None = None) -> AppRuntime:
     configure_langsmith(settings)
     catalog = ContentCatalog(settings.data_root)
     source = LocalCorpusSource(settings, catalog)
+    retrieval_pipeline = HybridRetrievalPipeline(settings, source)
     tools, registry = build_rag_tools(source)
     agent = AgentRunner(
         AgentDependencies(
             settings=settings,
             catalog=catalog,
+            retrieval_pipeline=retrieval_pipeline,
             tools=tools,
             tool_registry=registry,
         )
