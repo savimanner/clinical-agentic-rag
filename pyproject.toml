@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastapi-learning-rag"
+version = "0.1.0"
+description = "Local-first agentic RAG playground built with FastAPI, LangChain, LangGraph, LangSmith, and OpenRouter."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "chromadb>=1.0.0",
+    "fastapi>=0.135.0",
+    "langchain>=0.3.0",
+    "langchain-chroma>=0.2.0",
+    "langchain-openrouter>=0.1.0",
+    "langgraph>=0.2.0",
+    "langsmith>=0.1.0",
+    "openai>=1.0.0",
+    "pydantic-settings>=2.0.0",
+    "pypdf>=5.0.0",
+    "python-dotenv>=1.0.0",
+    "uvicorn>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28.0",
+    "pytest>=8.0.0",
+]
+
+[tool.fastapi]
+entrypoint = "backend.main:app"
+
+[tool.setuptools.packages.find]
+include = ["backend*", "scripts*"]
+exclude = ["data*", "storage*", "tests*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
