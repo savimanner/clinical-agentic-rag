@@ -1,10 +1,15 @@
-from dataclasses import dataclass
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from backend.api.app import create_app
 from backend.content.catalog import DocumentSummary
 from backend.core.settings import Settings
+from backend.threads import LocalThreadStore, ThreadService
 
 
 class FakeCatalog:
@@ -20,9 +25,26 @@ class FakeCatalog:
             )
         ]
 
+    def get_document(self, doc_id: str):
+        for document in self.list_documents():
+            if document.doc_id == doc_id:
+                return document
+        return None
 
+
+@dataclass
 class FakeAgent:
-    def answer_question(self, question: str, *, doc_ids=None, debug=False):
+    calls: list[dict] = field(default_factory=list)
+
+    def answer_question(self, question: str, *, doc_ids=None, debug=False, prior_turns=None):
+        self.calls.append(
+            {
+                "question": question,
+                "doc_ids": doc_ids,
+                "debug": debug,
+                "prior_turns": list(prior_turns or []),
+            }
+        )
         return {
             "answer": f"Answered: {question}",
             "citations": [
@@ -44,16 +66,29 @@ class FakeRuntime:
     settings: Settings
     catalog: FakeCatalog
     agent: FakeAgent
+    thread_store: LocalThreadStore
+    thread_service: ThreadService
 
 
-def test_api_endpoints():
+def build_test_client(tmp_path: Path) -> tuple[TestClient, FakeRuntime]:
+    thread_store = LocalThreadStore(tmp_path / "storage" / "threads")
+    agent = FakeAgent()
     runtime = FakeRuntime(
-        settings=Settings(openrouter_api_key="test-key"),
+        settings=Settings(
+            openrouter_api_key="test-key",
+            storage_root=tmp_path / "storage",
+        ),
         catalog=FakeCatalog(),
-        agent=FakeAgent(),
+        agent=agent,
+        thread_store=thread_store,
+        thread_service=ThreadService(thread_store, agent),
     )
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    return TestClient(app), runtime
+
+
+def test_api_health_library_and_chat(tmp_path: Path):
+    client, _runtime = build_test_client(tmp_path)
 
     health = client.get("/api/health")
     library = client.get("/api/library")
@@ -64,3 +99,101 @@ def test_api_endpoints():
     assert chat.status_code == 200
     assert chat.json()["used_doc_ids"] == ["demo-guideline"]
     assert chat.json()["debug_trace"][0]["step"] == "planner"
+
+
+def test_thread_api_crud_and_append_message(tmp_path: Path):
+    client, runtime = build_test_client(tmp_path)
+
+    created = client.post(
+        "/api/threads",
+        json={"scope": {"doc_ids": ["demo-guideline"]}},
+    )
+    assert created.status_code == 201
+    thread = created.json()
+    thread_id = thread["id"]
+
+    listed = client.get("/api/threads")
+    fetched = client.get(f"/api/threads/{thread_id}")
+    appended = client.post(
+        f"/api/threads/{thread_id}/messages",
+        json={"message": "What is this guideline about?", "debug": True},
+    )
+
+    assert listed.status_code == 200
+    assert fetched.status_code == 200
+    assert appended.status_code == 200
+    assert listed.json()[0]["id"] == thread_id
+    assert fetched.json()["doc_ids"] == ["demo-guideline"]
+
+    messages = appended.json()["messages"]
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert messages[-1]["citations"][0]["chunk_id"] == "demo-guideline::chunk_0000"
+    assert messages[-1]["debug_trace"][0]["step"] == "planner"
+    assert appended.json()["title"] == "What is this guideline about?"
+
+    stored_path = tmp_path / "storage" / "threads" / f"{thread_id}.json"
+    stored_payload = json.loads(stored_path.read_text(encoding="utf-8"))
+    assert stored_payload["messages"][-1]["role"] == "assistant"
+
+    deleted = client.delete(f"/api/threads/{thread_id}")
+    missing = client.get(f"/api/threads/{thread_id}")
+
+    assert deleted.status_code == 204
+    assert missing.status_code == 404
+    assert runtime.agent.calls[0]["doc_ids"] == ["demo-guideline"]
+
+
+def test_thread_scope_update_persists_and_passes_prior_turns(tmp_path: Path):
+    client, runtime = build_test_client(tmp_path)
+
+    created = client.post("/api/threads", json={})
+    thread_id = created.json()["id"]
+
+    updated = client.patch(
+        f"/api/threads/{thread_id}",
+        json={"title": "Renamed thread", "scope": {"doc_ids": ["demo-guideline"]}},
+    )
+    first_reply = client.post(
+        f"/api/threads/{thread_id}/messages",
+        json={"message": "Start with the screening schedule."},
+    )
+    second_reply = client.post(
+        f"/api/threads/{thread_id}/messages",
+        json={"message": "What about contraindications?"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["title"] == "Renamed thread"
+    assert updated.json()["doc_ids"] == ["demo-guideline"]
+    assert first_reply.status_code == 200
+    assert second_reply.status_code == 200
+
+    second_call = runtime.agent.calls[-1]
+    assert second_call["doc_ids"] == ["demo-guideline"]
+    assert second_call["prior_turns"] == [
+        {"role": "user", "content": "Start with the screening schedule."},
+        {"role": "assistant", "content": "Answered: Start with the screening schedule."},
+    ]
+
+
+def test_create_app_serves_built_spa_when_present(tmp_path: Path):
+    client, runtime = build_test_client(tmp_path)
+    frontend_dist = tmp_path / "frontend" / "dist"
+    assets_dir = frontend_dist / "assets"
+    assets_dir.mkdir(parents=True)
+    (frontend_dist / "index.html").write_text("<html><body>spa-shell</body></html>", encoding="utf-8")
+    (assets_dir / "app.js").write_text("console.log('ok');", encoding="utf-8")
+
+    app = create_app(runtime=runtime, frontend_dist=frontend_dist)
+    client = TestClient(app)
+
+    root = client.get("/")
+    thread_route = client.get("/threads/demo-thread")
+    asset = client.get("/assets/app.js")
+
+    assert root.status_code == 200
+    assert "spa-shell" in root.text
+    assert thread_route.status_code == 200
+    assert "spa-shell" in thread_route.text
+    assert asset.status_code == 200
+    assert "console.log('ok');" in asset.text

@@ -15,6 +15,7 @@ class AgentState(TypedDict, total=False):
     question: str
     doc_ids: list[str] | None
     working_doc_ids: list[str] | None
+    conversation_history: list[dict[str, str]]
     debug: bool
     messages: Annotated[Sequence[BaseMessage], add_messages]
     iteration_count: int

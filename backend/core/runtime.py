@@ -10,6 +10,7 @@ from backend.core.settings import Settings, get_settings
 from backend.core.tracing import configure_langsmith
 from backend.rag.sources import LocalCorpusSource
 from backend.rag.tools import build_rag_tools
+from backend.threads import LocalThreadStore, ThreadService
 
 
 @dataclass
@@ -18,6 +19,8 @@ class AppRuntime:
     catalog: ContentCatalog
     source: LocalCorpusSource
     agent: AgentRunner
+    thread_store: LocalThreadStore
+    thread_service: ThreadService
 
 
 def build_runtime(settings: Settings | None = None) -> AppRuntime:
@@ -34,7 +37,16 @@ def build_runtime(settings: Settings | None = None) -> AppRuntime:
             tool_registry=registry,
         )
     )
-    return AppRuntime(settings=settings, catalog=catalog, source=source, agent=agent)
+    thread_store = LocalThreadStore(settings.threads_directory)
+    thread_service = ThreadService(thread_store, agent)
+    return AppRuntime(
+        settings=settings,
+        catalog=catalog,
+        source=source,
+        agent=agent,
+        thread_store=thread_store,
+        thread_service=thread_service,
+    )
 
 
 @lru_cache(maxsize=1)

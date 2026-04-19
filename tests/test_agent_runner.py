@@ -31,6 +31,7 @@ class FakeChatModel:
         self.answer_response = answer_response
         self.planner_calls = 0
         self.grade_calls = 0
+        self.planner_inputs = []
 
     def bind_tools(self, _tools):
         return self
@@ -38,7 +39,8 @@ class FakeChatModel:
     def with_structured_output(self, schema):
         return FakeStructuredModel(self, schema)
 
-    def invoke(self, _messages):
+    def invoke(self, messages):
+        self.planner_inputs.append(messages)
         index = min(self.planner_calls, len(self.planner_responses) - 1)
         self.planner_calls += 1
         return self.planner_responses[index]
@@ -228,3 +230,49 @@ def test_agent_runner_metadata_does_not_consume_iterations_before_failed_retriev
     assert routing_entries[1]["reason"] == "retrieval_attempted_without_chunks"
     assert any(entry["step"] == "grade_evidence" for entry in result["debug_trace"])
     assert result["answer"] == "I don't know based on the indexed guidelines."
+
+
+def test_agent_runner_uses_bounded_prior_turn_history(monkeypatch):
+    fake_model = FakeChatModel(
+        planner_responses=[AIMessage(content="Based on the indexed guidelines, continue the prior plan.", tool_calls=[])],
+        grade_responses=[],
+        answer_response=AnswerDraft(answer="unused"),
+    )
+    monkeypatch.setattr("backend.agent.graph.get_chat_model", lambda _settings: fake_model)
+
+    source = FakeSource()
+    tools, registry = build_rag_tools(source)
+    deps = AgentDependencies(
+        settings=Settings(
+            openrouter_api_key="test-key",
+            agent_history_turn_limit=2,
+        ),
+        catalog=FakeCatalog(),
+        tools=tools,
+        tool_registry=registry,
+    )
+    runner = AgentRunner(deps)
+
+    result = runner.answer_question(
+        "What about contraindications?",
+        prior_turns=[
+            {"role": "user", "content": "Oldest user turn"},
+            {"role": "assistant", "content": "Oldest assistant turn"},
+            {"role": "user", "content": "Keep this user turn"},
+            {"role": "assistant", "content": "Keep this assistant turn"},
+            {"role": "user", "content": "Most recent user turn"},
+            {"role": "assistant", "content": "Most recent assistant turn"},
+        ],
+    )
+
+    planner_messages = fake_model.planner_inputs[0]
+    planner_contents = [str(message.content) for message in planner_messages[1:]]
+
+    assert "indexed guidelines" in result["answer"]
+    assert planner_contents == [
+        "Keep this user turn",
+        "Keep this assistant turn",
+        "Most recent user turn",
+        "Most recent assistant turn",
+        "What about contraindications?",
+    ]

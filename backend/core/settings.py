@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     agent_max_subquestions: int = 3
     agent_max_iterations: int = 2
     agent_max_tool_calls: int = 6
+    agent_history_turn_limit: int = 4
     debug_context_limit: int = 8
 
     model_config = SettingsConfigDict(
@@ -48,6 +49,10 @@ class Settings(BaseSettings):
     @property
     def chroma_directory(self) -> Path:
         return self.chroma_persist_directory
+
+    @property
+    def threads_directory(self) -> Path:
+        return self.storage_root / "threads"
 
     @property
     def index_exists(self) -> bool:

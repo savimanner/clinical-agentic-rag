@@ -73,6 +73,18 @@ def _serialize_chunks(chunks: list[RetrievedChunk], limit: int) -> str:
     return "\n\n".join(lines)
 
 
+def _serialize_conversation_history(history: list[dict[str, str]] | None) -> str:
+    if not history:
+        return ""
+    lines: list[str] = []
+    for turn in history:
+        role = "User" if turn.get("role") == "user" else "Assistant"
+        content = str(turn.get("content", "")).strip()
+        if content:
+            lines.append(f"{role}: {content}")
+    return "\n\n".join(lines)
+
+
 def _latest_tool_payload(messages: list[BaseMessage], tool_name: str) -> dict[str, Any] | None:
     for message in reversed(messages):
         if not isinstance(message, ToolMessage):
@@ -234,6 +246,12 @@ def build_agent_graph(deps: AgentDependencies):
 
     def grade_evidence_node(state: AgentState) -> dict[str, Any]:
         chunks = _retrieved_chunks(list(state["messages"]))
+        conversation_context = _serialize_conversation_history(state.get("conversation_history"))
+        conversation_block = (
+            f"Prior conversation:\n{conversation_context}\n\n"
+            if conversation_context
+            else ""
+        )
         if not chunks:
             next_iteration = state.get("iteration_count", 0)
             if state.get("retrieval_attempted"):
@@ -264,6 +282,7 @@ def build_agent_graph(deps: AgentDependencies):
             HumanMessage(
                 content=(
                     f"Question:\n{state['question']}\n\n"
+                    f"{conversation_block}"
                     f"Retrieved evidence:\n{_serialize_chunks(chunks, settings.debug_context_limit)}"
                 )
             ),
@@ -308,6 +327,12 @@ def build_agent_graph(deps: AgentDependencies):
             return {}
 
         chunks = _retrieved_chunks(list(state["messages"]))
+        conversation_context = _serialize_conversation_history(state.get("conversation_history"))
+        conversation_block = (
+            f"Prior conversation:\n{conversation_context}\n\n"
+            if conversation_context
+            else ""
+        )
         if not chunks:
             return {
                 "final_payload": {
@@ -330,6 +355,7 @@ def build_agent_graph(deps: AgentDependencies):
             HumanMessage(
                 content=(
                     f"Question:\n{state['question']}\n\n"
+                    f"{conversation_block}"
                     f"Evidence:\n{_serialize_chunks(chunks, settings.debug_context_limit)}"
                 )
             ),
