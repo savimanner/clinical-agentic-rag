@@ -4,6 +4,7 @@ import type { DocumentSummary } from '../types/api';
 
 interface MessageComposerProps {
   activeScopeDocIds: string[];
+  canManageSources: boolean;
   debugEnabled: boolean;
   isDisabled: boolean;
   isSending: boolean;
@@ -15,6 +16,7 @@ interface MessageComposerProps {
 
 export function MessageComposer({
   activeScopeDocIds,
+  canManageSources,
   debugEnabled,
   isDisabled,
   isSending,
@@ -69,9 +71,13 @@ export function MessageComposer({
           </div>
         </div>
 
-        <button className="ghost-button" onClick={onOpenSources} type="button">
-          Edit sources
-        </button>
+        {canManageSources ? (
+          <button className="ghost-button" onClick={onOpenSources} type="button">
+            Edit sources
+          </button>
+        ) : (
+          <p className="composer__scope-note">Source scope unlocks after the first message.</p>
+        )}
       </div>
 
       <label className="composer__field">

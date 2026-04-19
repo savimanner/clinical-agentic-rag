@@ -3,6 +3,7 @@ import { useEffect, useState, useTransition } from 'react';
 import type { ThreadDetail } from '../types/api';
 
 interface ThreadHeaderProps {
+  canManageSources: boolean;
   thread: ThreadDetail | null;
   onDeleteThread: (threadId: string) => Promise<void>;
   onOpenRail: () => void;
@@ -11,6 +12,7 @@ interface ThreadHeaderProps {
 }
 
 export function ThreadHeader({
+  canManageSources,
   thread,
   onDeleteThread,
   onOpenRail,
@@ -74,9 +76,11 @@ export function ThreadHeader({
       </div>
 
       <div className="thread-header__actions">
-        <button className="ghost-button" onClick={onOpenSources} type="button">
-          Sources
-        </button>
+        {canManageSources ? (
+          <button className="ghost-button" onClick={onOpenSources} type="button">
+            Sources
+          </button>
+        ) : null}
         {thread ? (
           <button
             className="ghost-button ghost-button--danger"

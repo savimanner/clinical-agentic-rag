@@ -45,6 +45,7 @@ function Workspace() {
   }, [activeThreadId, navigate, threads.data, threads.isLoading]);
 
   const activeScopeDocIds = threadDetail.data?.doc_ids ?? [];
+  const canManageSources = threadDetail.data != null;
   const detailErrorMessage = threadDetail.error?.message ?? null;
   const canUseWorkspace = library.error == null && threads.error == null;
 
@@ -174,6 +175,7 @@ function Workspace() {
 
       <div className="workspace">
         <ThreadHeader
+          canManageSources={canManageSources}
           onDeleteThread={handleDeleteThread}
           onOpenRail={() => setIsRailOpen(true)}
           onOpenSources={() => setIsSourceDrawerOpen(true)}
@@ -198,6 +200,7 @@ function Workspace() {
 
             <MessageComposer
               activeScopeDocIds={activeScopeDocIds}
+              canManageSources={canManageSources}
               debugEnabled={debugEnabled}
               isDisabled={!canUseWorkspace}
               isSending={isSending}

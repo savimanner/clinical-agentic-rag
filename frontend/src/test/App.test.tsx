@@ -267,6 +267,17 @@ describe('App', () => {
     ).toBeInTheDocument();
   });
 
+  it('holds source scoping until a thread exists', async () => {
+    const client = new FakeClient();
+    client.threads.clear();
+
+    render(<App client={client} initialEntries={['/']} useMemoryRouter />);
+
+    expect(await screen.findByText('Source scope unlocks after the first message.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sources' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit sources' })).not.toBeInTheDocument();
+  });
+
   it('opens evidence in the desktop pane when a citation chip is selected', async () => {
     const client = new FakeClient();
     const user = userEvent.setup();
