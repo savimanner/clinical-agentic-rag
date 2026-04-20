@@ -5,7 +5,7 @@ from backend.agent.runner import AgentRunner
 from backend.agent.schemas import AnswerDraft, EvidenceGrade
 from backend.content.catalog import DocumentSummary
 from backend.core.settings import Settings
-from backend.rag.models import RetrievedChunk
+from backend.rag.models import RetrievedChunk, RetrievalExplanation, RetrievalStage, RetrievalStageItem
 from backend.rag.retrieval import RetrievalResult
 
 
@@ -59,6 +59,7 @@ class FakeRetrievalPipeline:
             query=query,
             candidates=top_chunks,
             top_chunks=top_chunks,
+            explanation=make_retrieval_explanation(query, top_chunks),
             debug={
                 "lexical_hit_count": len(top_chunks),
                 "dense_hit_count": len(top_chunks),
@@ -86,6 +87,30 @@ def make_chunk(chunk_id: str, text: str = "Evidence") -> RetrievedChunk:
         breadcrumbs="Intro",
         text=text,
         source_path="demo.md",
+    )
+
+
+def make_retrieval_explanation(query: str, chunks: list[RetrievedChunk]) -> RetrievalExplanation:
+    items = [
+        RetrievalStageItem(
+            doc_id=chunk.doc_id,
+            chunk_id=chunk.chunk_id,
+            breadcrumbs=chunk.breadcrumbs,
+            snippet=chunk.text,
+            source_path=chunk.source_path,
+            rank=index,
+            source_modes=["lexical", "dense"],
+        )
+        for index, chunk in enumerate(chunks[:1], start=1)
+    ]
+    stage = RetrievalStage(total_hits=len(chunks), omitted_hits=max(len(chunks) - len(items), 0), items=items)
+    return RetrievalExplanation(
+        query_used=query,
+        lexical_hits=stage,
+        dense_hits=stage,
+        merged_candidates=stage,
+        reranked_top_chunks=stage,
+        final_supporting_chunks=RetrievalStage(),
     )
 
 
@@ -122,6 +147,11 @@ def test_agent_runner_retries_once_then_answers(monkeypatch):
     assert result["answer"] == "Bounded answer"
     assert result["used_doc_ids"] == ["demo-guideline"]
     assert [call["query"] for call in retrieval_pipeline.calls] == ["Need evidence", "refined query"]
+    assert result["retrieval_explanation"]["query_used"] == "refined query"
+    assert result["retrieval_explanation"]["refined_question_used"] == "refined query"
+    assert result["retrieval_explanation"]["final_supporting_chunks"]["items"][0]["chunk_id"] == (
+        "demo-guideline::chunk_0001"
+    )
     assert any(entry["step"] == "rewrite_question" for entry in result["debug_trace"])
 
 
@@ -147,6 +177,7 @@ def test_agent_runner_returns_conservative_fallback_without_chunks(monkeypatch):
 
     assert result["answer"] == "I don't know based on the indexed guidelines."
     assert result["citations"] == []
+    assert result["retrieval_explanation"]["final_supporting_chunks"]["items"] == []
     assert any(entry["step"] == "grade_evidence" for entry in result["debug_trace"])
 
 

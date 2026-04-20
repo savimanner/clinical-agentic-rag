@@ -9,6 +9,7 @@ import type {
   Citation,
   CreateThreadRequest,
   DocumentSummary,
+  RetrievalExplanation,
   ThreadDetail,
   ThreadSummary,
   UpdateThreadRequest,
@@ -41,6 +42,80 @@ const citation: Citation = {
   source_path: 'guidelines/hypertension.md',
 };
 
+const retrievalExplanation: RetrievalExplanation = {
+  query_used: 'first line hypertension treatment ace inhibitor',
+  refined_question_used: 'first line hypertension treatment ace inhibitor',
+  lexical_hits: {
+    total_hits: 1,
+    omitted_hits: 0,
+    items: [
+      {
+        doc_id: citation.doc_id,
+        chunk_id: citation.chunk_id,
+        breadcrumbs: citation.breadcrumbs,
+        snippet: citation.snippet,
+        source_path: citation.source_path,
+        rank: 1,
+        score: 5.2,
+        source_modes: ['lexical'],
+      },
+    ],
+  },
+  dense_hits: {
+    total_hits: 1,
+    omitted_hits: 0,
+    items: [
+      {
+        doc_id: citation.doc_id,
+        chunk_id: 'hypertension-guideline::chunk_0009',
+        breadcrumbs: 'Treatment > Selection',
+        snippet: 'Choose medication by risk profile and comorbidities.',
+        source_path: citation.source_path,
+        rank: 1,
+        score: 0.82,
+        source_modes: ['dense'],
+      },
+    ],
+  },
+  merged_candidates: {
+    total_hits: 2,
+    omitted_hits: 0,
+    items: [],
+  },
+  reranked_top_chunks: {
+    total_hits: 2,
+    omitted_hits: 0,
+    items: [
+      {
+        doc_id: citation.doc_id,
+        chunk_id: citation.chunk_id,
+        breadcrumbs: citation.breadcrumbs,
+        snippet: citation.snippet,
+        source_path: citation.source_path,
+        rank: 1,
+        score: 0.031,
+        source_modes: ['lexical', 'dense'],
+      },
+    ],
+  },
+  final_supporting_chunks: {
+    total_hits: 1,
+    omitted_hits: 0,
+    items: [
+      {
+        doc_id: citation.doc_id,
+        chunk_id: citation.chunk_id,
+        breadcrumbs: citation.breadcrumbs,
+        snippet: citation.snippet,
+        source_path: citation.source_path,
+        rank: 1,
+        cited_directly: true,
+        source_modes: ['lexical', 'dense'],
+      },
+    ],
+  },
+};
+
 const threadOne: ThreadDetail = {
   id: 'thread-1',
   title: 'Initial blood pressure question',
@@ -63,6 +138,7 @@ const threadOne: ThreadDetail = {
       created_at: '2026-04-19T08:05:00.000Z',
       citations: [citation],
       used_doc_ids: ['hypertension-guideline'],
+      retrieval_explanation: retrievalExplanation,
       debug_trace: [{ step: 'retrieve' }],
     },
   ],
@@ -167,6 +243,7 @@ class FakeClient implements AssistantApiClient {
           created_at: '2026-04-19T10:05:00.000Z',
           citations: [citation],
           used_doc_ids: ['hypertension-guideline'],
+          retrieval_explanation: retrievalExplanation,
           debug_trace: [{ step: 'planner' }],
         },
       ],
@@ -325,7 +402,30 @@ describe('App', () => {
     await user.click(await screen.findByRole('button', { name: /hypertension-guideline treatment > first line/i }));
 
     expect(await screen.findByRole('heading', { name: 'Hypertension Guideline' })).toBeInTheDocument();
-    expect(screen.getByText(citation.snippet)).toBeInTheDocument();
+    expect(screen.getAllByText(citation.snippet).length).toBeGreaterThan(0);
+  });
+
+  it('opens the retrieval explanation panel and shows the same explanation after reload', async () => {
+    const client = new FakeClient();
+    const user = userEvent.setup();
+    const firstRender = render(<App client={client} initialEntries={['/threads/thread-1']} useMemoryRouter />);
+
+    await user.click(await screen.findByText('Why this answer'));
+
+    expect(await screen.findByText('Exact wording matches')).toBeVisible();
+    expect(screen.getByText('Meaning-based matches')).toBeVisible();
+    expect(screen.getByText('Best candidates after merging')).toBeVisible();
+    expect(screen.getByText('Final evidence chosen')).toBeVisible();
+    expect(screen.getByText('first line hypertension treatment ace inhibitor')).toBeVisible();
+
+    firstRender.unmount();
+
+    render(<App client={client} initialEntries={['/threads/thread-1']} useMemoryRouter />);
+
+    await user.click(await screen.findByText('Why this answer'));
+
+    expect(await screen.findByText('Exact wording matches')).toBeVisible();
+    expect(screen.getAllByText('Directly cited in the final answer.')[0]).toBeVisible();
   });
 
   it('uses a mobile citation sheet and patches thread scope from the source drawer', async () => {

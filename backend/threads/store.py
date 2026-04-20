@@ -7,7 +7,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from backend.api.schemas import ThreadDetail, ThreadMessage, ThreadSummary
-from backend.rag.models import Citation
+from backend.rag.models import Citation, RetrievalExplanation
 
 DEFAULT_THREAD_TITLE = "New thread"
 
@@ -156,6 +156,11 @@ class LocalThreadStore:
                 for citation in assistant_payload.get("citations", [])
             ],
             used_doc_ids=_dedupe_doc_ids(assistant_payload.get("used_doc_ids", [])),
+            retrieval_explanation=(
+                RetrievalExplanation.model_validate(assistant_payload["retrieval_explanation"])
+                if assistant_payload.get("retrieval_explanation") is not None
+                else None
+            ),
             debug_trace=assistant_payload.get("debug_trace"),
         )
 

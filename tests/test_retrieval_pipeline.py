@@ -70,6 +70,10 @@ def test_hybrid_retrieval_pipeline_merges_and_reranks(monkeypatch):
     assert result.debug["lexical_hit_count"] == 1
     assert result.debug["dense_hit_count"] == 2
     assert result.debug["candidate_count"] == 2
+    assert result.explanation.query_used == "ibuprofen treatment"
+    assert result.explanation.lexical_hits.items[0].chunk_id == "demo-guideline::chunk_0002"
+    assert result.explanation.dense_hits.items[0].chunk_id == "demo-guideline::chunk_0000"
+    assert result.explanation.merged_candidates.items[0].source_modes == ["lexical", "dense"]
     assert [chunk.chunk_id for chunk in result.top_chunks] == [
         "demo-guideline::chunk_0002",
         "demo-guideline::chunk_0000",

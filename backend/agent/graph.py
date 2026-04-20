@@ -10,7 +10,9 @@ from backend.agent.schemas import AnswerDraft, EvidenceGrade
 from backend.agent.state import AgentState
 from backend.core.models import get_chat_model
 from backend.rag.citations import build_citations
-from backend.rag.models import RetrievedChunk
+from backend.rag.models import RetrievalExplanation, RetrievalStage, RetrievalStageItem, RetrievedChunk
+
+FINAL_SUPPORT_LIMIT = 4
 
 
 @dataclass
@@ -45,6 +47,25 @@ def _state_chunks(state: AgentState) -> list[RetrievedChunk]:
     return [RetrievedChunk.model_validate(payload) for payload in state.get("retrieved_chunks", [])]
 
 
+def _state_retrieval_explanation(state: AgentState) -> RetrievalExplanation | None:
+    payload = state.get("retrieval_explanation")
+    if payload is None:
+        return None
+    return RetrievalExplanation.model_validate(payload)
+
+
+def _snippet(text: str, *, limit: int = 180) -> str:
+    collapsed = " ".join(text.split()).strip()
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[: limit - 3].rstrip()}..."
+
+
+def _select_chunks_by_ids(chunks: list[RetrievedChunk], chunk_ids: list[str]) -> list[RetrievedChunk]:
+    chunks_by_id = {chunk.chunk_id: chunk for chunk in chunks}
+    return [chunks_by_id[chunk_id] for chunk_id in chunk_ids if chunk_id in chunks_by_id]
+
+
 def build_agent_graph(deps: AgentDependencies):
     settings = deps.settings
 
@@ -56,6 +77,7 @@ def build_agent_graph(deps: AgentDependencies):
         )
         return {
             "retrieved_chunks": [chunk.model_dump() for chunk in retrieval.top_chunks],
+            "retrieval_explanation": retrieval.explanation.model_dump(),
             "retrieval_attempt_count": state.get("retrieval_attempt_count", 0) + 1,
             "trace": [
                 {
@@ -142,6 +164,11 @@ def build_agent_graph(deps: AgentDependencies):
                     "answer": "I don't know based on the indexed guidelines.",
                     "citations": [],
                     "used_doc_ids": [],
+                    "retrieval_explanation": _finalize_retrieval_explanation(
+                        state,
+                        cited_chunk_ids=[],
+                        final_chunks=[],
+                    ),
                 },
                 "trace": [{"step": "generate_answer", "mode": "fallback-no-context"}],
             }
@@ -171,6 +198,11 @@ def build_agent_graph(deps: AgentDependencies):
             "answer": answer.answer,
             "citations": [citation.model_dump() for citation in citations],
             "used_doc_ids": used_doc_ids,
+            "retrieval_explanation": _finalize_retrieval_explanation(
+                state,
+                cited_chunk_ids=chosen_chunk_ids,
+                final_chunks=_select_chunks_by_ids(chunks, chosen_chunk_ids),
+            ),
         }
         return {
             "final_payload": payload,
@@ -188,10 +220,20 @@ def build_agent_graph(deps: AgentDependencies):
         payload = dict(state.get("final_payload") or {})
         chunks = _state_chunks(state)
         citations = payload.get("citations", [])
+        refresh_retrieval_explanation = payload.get("retrieval_explanation") is None
         if not citations and chunks:
             fallback_citations = build_citations(chunks[:3])
             payload["citations"] = [citation.model_dump() for citation in fallback_citations]
             payload["used_doc_ids"] = sorted({citation.doc_id for citation in fallback_citations})
+            refresh_retrieval_explanation = True
+
+        if refresh_retrieval_explanation:
+            cited_chunk_ids = [citation["chunk_id"] for citation in payload.get("citations", [])]
+            payload["retrieval_explanation"] = _finalize_retrieval_explanation(
+                state,
+                cited_chunk_ids=cited_chunk_ids,
+                final_chunks=_select_chunks_by_ids(chunks, cited_chunk_ids),
+            )
 
         if not payload.get("citations") and "guidelines" not in str(payload.get("answer", "")).lower():
             payload["answer"] = "I don't know based on the indexed guidelines."
@@ -228,3 +270,41 @@ def build_agent_graph(deps: AgentDependencies):
     graph.add_edge("generate_answer", "guardrail")
     graph.add_edge("guardrail", END)
     return graph.compile()
+
+
+def _finalize_retrieval_explanation(
+    state: AgentState,
+    *,
+    cited_chunk_ids: list[str],
+    final_chunks: list[RetrievedChunk],
+) -> dict[str, Any] | None:
+    explanation = _state_retrieval_explanation(state)
+    if explanation is None:
+        return None
+
+    if state.get("retrieval_attempt_count", 0) > 1 and explanation.query_used != state["question"]:
+        explanation.refined_question_used = explanation.query_used
+
+    cited_chunk_id_set = set(cited_chunk_ids)
+    source_modes_by_chunk_id = {
+        item.chunk_id: list(item.source_modes) for item in explanation.reranked_top_chunks.items
+    }
+    explanation.final_supporting_chunks = RetrievalStage(
+        total_hits=len(final_chunks),
+        omitted_hits=max(len(final_chunks) - min(len(final_chunks), FINAL_SUPPORT_LIMIT), 0),
+        items=[
+            RetrievalStageItem(
+                doc_id=chunk.doc_id,
+                chunk_id=chunk.chunk_id,
+                breadcrumbs=chunk.breadcrumbs,
+                snippet=_snippet(chunk.text),
+                source_path=chunk.source_path,
+                rank=index,
+                score=round(chunk.score, 6) if chunk.score is not None else None,
+                source_modes=source_modes_by_chunk_id.get(chunk.chunk_id, []),
+                cited_directly=chunk.chunk_id in cited_chunk_id_set,
+            )
+            for index, chunk in enumerate(final_chunks[:FINAL_SUPPORT_LIMIT], start=1)
+        ],
+    )
+    return explanation.model_dump()
