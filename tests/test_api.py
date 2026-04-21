@@ -45,15 +45,11 @@ def make_retrieval_explanation(query_used: str = "What is this?") -> RetrievalEx
         source_path="demo.md",
         rank=1,
         score=1.0,
-        source_modes=["lexical", "dense"],
     )
     stage = RetrievalStage(total_hits=1, omitted_hits=0, items=[item])
     return RetrievalExplanation(
         query_used=query_used,
-        lexical_hits=stage,
         dense_hits=stage,
-        merged_candidates=stage,
-        reranked_top_chunks=stage,
         final_supporting_chunks=stage,
     )
 
@@ -87,7 +83,7 @@ class FakeAgent:
             ],
             "used_doc_ids": ["demo-guideline"],
             "retrieval_explanation": make_retrieval_explanation(question).model_dump(),
-            "debug_trace": [{"step": "planner"}] if debug else None,
+            "debug_trace": [{"step": "dense_retrieval"}] if debug else None,
         }
 
 
@@ -131,11 +127,8 @@ class FakeRetrievalPipeline:
             top_chunks=self.top_chunks,
             explanation=make_retrieval_explanation(query),
             debug={
-                "lexical_hit_count": len(self.top_chunks),
                 "dense_hit_count": len(self.top_chunks),
-                "candidate_count": len(self.top_chunks),
                 "top_chunk_ids": [chunk.chunk_id for chunk in self.top_chunks],
-                "rerank_reasoning": "fake",
             },
         )
 
@@ -198,7 +191,7 @@ def test_api_health_library_and_chat(tmp_path: Path):
     assert chat.status_code == 200
     assert chat.json()["used_doc_ids"] == ["demo-guideline"]
     assert chat.json()["retrieval_explanation"]["query_used"] == "What is this?"
-    assert chat.json()["debug_trace"][0]["step"] == "planner"
+    assert chat.json()["debug_trace"][0]["step"] == "dense_retrieval"
 
 
 def test_chat_returns_gateway_timeout_for_openrouter_524_validation_error(tmp_path: Path):
@@ -242,7 +235,7 @@ def test_thread_api_crud_and_append_message(tmp_path: Path):
     assert [message["role"] for message in messages] == ["user", "assistant"]
     assert messages[-1]["citations"][0]["chunk_id"] == "demo-guideline::chunk_0000"
     assert messages[-1]["retrieval_explanation"]["query_used"] == "What is this guideline about?"
-    assert messages[-1]["debug_trace"][0]["step"] == "planner"
+    assert messages[-1]["debug_trace"][0]["step"] == "dense_retrieval"
     assert appended.json()["title"] == "What is this guideline about?"
 
     stored_path = tmp_path / "storage" / "threads" / f"{thread_id}.json"
@@ -351,10 +344,11 @@ def test_api_chat_uses_real_agent_runner_and_conservative_fallback(tmp_path: Pat
     assert response.json()["citations"] == []
     assert response.json()["retrieval_explanation"]["query_used"] == "What is the dose?"
     assert response.json()["retrieval_explanation"]["refined_question_used"] == "dose query"
+    assert response.json()["retrieval_explanation"]["lexical_hits"]["items"] == []
     assert [entry["step"] for entry in response.json()["debug_trace"]] == [
         "user",
         "rewrite_query",
-        "planner",
+        "dense_retrieval",
         "generate_answer",
     ]
 
@@ -387,12 +381,85 @@ def test_api_chat_returns_citations_from_real_agent_runner(tmp_path: Path, monke
     assert response.json()["citations"][0]["chunk_id"] == "demo-guideline::chunk_0000"
     assert response.json()["retrieval_explanation"]["query_used"] == "What should I use for mild pain?"
     assert response.json()["retrieval_explanation"]["refined_question_used"] == "mild pain query"
+    assert response.json()["retrieval_explanation"]["dense_hits"]["items"][0]["chunk_id"] == (
+        "demo-guideline::chunk_0000"
+    )
     assert response.json()["retrieval_explanation"]["final_supporting_chunks"]["items"][0]["chunk_id"] == (
         "demo-guideline::chunk_0000"
     )
     assert [entry["step"] for entry in response.json()["debug_trace"]] == [
         "user",
         "rewrite_query",
-        "planner",
+        "dense_retrieval",
         "generate_answer",
     ]
+
+
+def test_api_chat_returns_generic_server_error_for_non_timeout_failures(tmp_path: Path):
+    client, runtime = build_test_client(tmp_path)
+    runtime.agent.error = RuntimeError("Boom")
+
+    response = client.post("/api/chat", json={"question": "What is this?"})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Boom"
+
+
+def test_api_chat_clears_citations_for_conservative_fallback_answer(tmp_path: Path, monkeypatch):
+    client = build_real_agent_client(
+        tmp_path,
+        monkeypatch,
+        top_chunks=[
+            RetrievedChunk(
+                doc_id="demo-guideline",
+                chunk_id="demo-guideline::chunk_0000",
+                chunk_index=0,
+                breadcrumbs="Treatment",
+                text="Use ibuprofen for mild pain.",
+                source_path="demo.md",
+            )
+        ],
+        rewrite_response=RewrittenQuery(query="mild pain query"),
+        answer_response=AnswerDraft(
+            answer="I don't know based on the indexed guidelines.",
+            cited_chunk_ids=["demo-guideline::chunk_0000"],
+        ),
+    )
+
+    response = client.post("/api/chat", json={"question": "What should I use for mild pain?", "debug": True})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "I don't know based on the indexed guidelines."
+    assert response.json()["citations"] == []
+    assert response.json()["used_doc_ids"] == []
+    assert response.json()["retrieval_explanation"]["final_supporting_chunks"]["items"] == []
+
+
+def test_api_chat_normalizes_non_english_fallback_answer(tmp_path: Path, monkeypatch):
+    client = build_real_agent_client(
+        tmp_path,
+        monkeypatch,
+        top_chunks=[
+            RetrievedChunk(
+                doc_id="demo-guideline",
+                chunk_id="demo-guideline::chunk_0000",
+                chunk_index=0,
+                breadcrumbs="Treatment",
+                text="Use ibuprofen for mild pain.",
+                source_path="demo.md",
+            )
+        ],
+        rewrite_response=RewrittenQuery(query="mild pain query"),
+        answer_response=AnswerDraft(
+            answer="Ma ei tea, mida soovitada, sest juhendis ei ole selle kohta infot.",
+            cited_chunk_ids=["demo-guideline::chunk_0000"],
+        ),
+    )
+
+    response = client.post("/api/chat", json={"question": "What should I use for mild pain?", "debug": True})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "I don't know based on the indexed guidelines."
+    assert response.json()["citations"] == []
+    assert response.json()["used_doc_ids"] == []
+    assert response.json()["retrieval_explanation"]["final_supporting_chunks"]["items"] == []

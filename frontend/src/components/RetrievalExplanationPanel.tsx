@@ -6,25 +6,15 @@ interface RetrievalExplanationPanelProps {
 
 type StageConfig = {
   description: string;
-  key: 'lexical_hits' | 'dense_hits' | 'reranked_top_chunks' | 'final_supporting_chunks';
+  key: 'dense_hits' | 'final_supporting_chunks';
   title: string;
 };
 
 const stageConfigs: StageConfig[] = [
   {
-    key: 'lexical_hits',
-    title: 'Exact wording matches',
-    description: 'Exact wording search found chunks that literally mention the terms in your question.',
-  },
-  {
     key: 'dense_hits',
     title: 'Meaning-based matches',
     description: 'Meaning-based search found chunks about the same idea, even when the wording differs.',
-  },
-  {
-    key: 'reranked_top_chunks',
-    title: 'Best candidates after merging',
-    description: 'The hybrid merge combined lexical and dense results, then kept the strongest candidates.',
   },
   {
     key: 'final_supporting_chunks',
@@ -34,26 +24,13 @@ const stageConfigs: StageConfig[] = [
 ];
 
 function buildItemReason(stageKey: StageConfig['key'], item: RetrievalStageItem): string {
-  if (stageKey === 'lexical_hits') {
-    return 'Matched the question wording directly.';
-  }
   if (stageKey === 'dense_hits') {
     return 'Matched the question by meaning rather than exact wording.';
   }
   if (stageKey === 'final_supporting_chunks') {
     return item.cited_directly ? 'Directly cited in the final answer.' : 'Kept as final supporting evidence.';
   }
-
-  if (item.source_modes?.length === 2) {
-    return 'Survived both lexical and dense retrieval before reranking.';
-  }
-  if (item.source_modes?.[0] === 'lexical') {
-    return 'Promoted from exact-match retrieval into the final shortlist.';
-  }
-  if (item.source_modes?.[0] === 'dense') {
-    return 'Promoted from meaning-based retrieval into the final shortlist.';
-  }
-  return 'Kept after the hybrid merge and reranking step.';
+  return 'Included in the answer evidence set.';
 }
 
 function formatScore(item: RetrievalStageItem): string | null {

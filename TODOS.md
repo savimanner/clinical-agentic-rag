@@ -2,7 +2,7 @@
 
 ## Simplify Remaining Graph Orchestration
 
-What: Revisit the remaining LangGraph orchestration after the new hybrid retrieval path has been stable in production-like use.
+What: Revisit the remaining LangGraph orchestration after the new dense-only retrieval path has been stable in production-like use.
 
 Why: The current implementation keeps a trimmed graph for scoped delivery, but the retrieval pipeline now does the real work. The graph may still contain transitional complexity that is no longer buying anything.
 
@@ -12,7 +12,7 @@ Cons: Needs real usage signal first, otherwise this turns into speculative clean
 
 Context: The retrieval rebuild intentionally kept the graph shape and trimmed it surgically instead of replacing it outright. Once the new pipeline is proven, this code should be reevaluated with fresh evidence rather than inertia.
 
-Depends on / blocked by: Depends on the new retrieval pipeline, reranking, and tests landing first.
+Depends on / blocked by: Depends on the dense-only retrieval baseline and tests landing first.
 
 ## Add Retrieval Benchmark Suite
 
@@ -26,13 +26,13 @@ Cons: Requires curation and occasional maintenance as the corpus evolves.
 
 Context: The current change adds regression, integration, and API-level tests. A benchmark suite would sit above those tests and measure end-to-end retrieval quality against a stable question set.
 
-Depends on / blocked by: Depends on the canonical schema and hybrid retrieval path being in place first.
+Depends on / blocked by: Depends on the canonical schema and dense-only retrieval baseline being in place first.
 
 ## Add Retrieval Compare Mode
 
 What: Add a future compare mode that runs multiple retrieval strategies for one question and shows how dense-only, lexical-only, and hybrid retrieval differ.
 
-Why: The new retrieval explanation panel will teach one answer path well, but compare mode is the strongest follow-on for helping a learner understand why hybrid retrieval wins or fails on a given question.
+Why: The new retrieval explanation panel will teach one answer path well, but compare mode is the strongest follow-on for helping a learner understand why dense-only, lexical-only, or hybrid retrieval wins or fails on a given question.
 
 Pros: Makes retrieval tradeoffs concrete, creates a strong teaching surface, and builds naturally on top of the explanation object introduced in the first pass.
 

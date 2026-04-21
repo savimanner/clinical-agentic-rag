@@ -6,23 +6,12 @@ import { RetrievalExplanationPanel } from '../components/RetrievalExplanationPan
 import type { RetrievalExplanation } from '../types/api';
 
 const explanation: RetrievalExplanation = {
-  query_used: 'ace inhibitor first line hypertension',
+  query_used: 'What is first-line treatment for hypertension?',
   refined_question_used: 'ace inhibitor first line hypertension',
   lexical_hits: {
-    total_hits: 2,
+    total_hits: 0,
     omitted_hits: 0,
-    items: [
-      {
-        doc_id: 'hypertension-guideline',
-        chunk_id: 'hypertension-guideline::chunk_0007',
-        breadcrumbs: 'Treatment > First line',
-        snippet: 'ACE inhibitors are recommended when blood pressure remains elevated.',
-        source_path: 'guidelines/hypertension.md',
-        rank: 1,
-        score: 5.1,
-        source_modes: ['lexical'],
-      },
-    ],
+    items: [],
   },
   dense_hits: {
     total_hits: 1,
@@ -30,9 +19,9 @@ const explanation: RetrievalExplanation = {
     items: [
       {
         doc_id: 'hypertension-guideline',
-        chunk_id: 'hypertension-guideline::chunk_0010',
-        breadcrumbs: 'Treatment > Follow-up',
-        snippet: 'Medication choices depend on risk profile and comorbidities.',
+        chunk_id: 'hypertension-guideline::chunk_0007',
+        breadcrumbs: 'Treatment > First line',
+        snippet: 'ACE inhibitors are recommended when blood pressure remains elevated.',
         source_path: 'guidelines/hypertension.md',
         rank: 1,
         score: 0.88,
@@ -41,25 +30,14 @@ const explanation: RetrievalExplanation = {
     ],
   },
   merged_candidates: {
-    total_hits: 2,
+    total_hits: 0,
     omitted_hits: 0,
     items: [],
   },
   reranked_top_chunks: {
-    total_hits: 2,
+    total_hits: 0,
     omitted_hits: 0,
-    items: [
-      {
-        doc_id: 'hypertension-guideline',
-        chunk_id: 'hypertension-guideline::chunk_0007',
-        breadcrumbs: 'Treatment > First line',
-        snippet: 'ACE inhibitors are recommended when blood pressure remains elevated.',
-        source_path: 'guidelines/hypertension.md',
-        rank: 1,
-        score: 0.032,
-        source_modes: ['lexical', 'dense'],
-      },
-    ],
+    items: [],
   },
   final_supporting_chunks: {
     total_hits: 1,
@@ -91,11 +69,11 @@ describe('RetrievalExplanationPanel', () => {
 
     await user.click(toggle);
 
-    expect(screen.getByText('Exact wording matches')).toBeVisible();
     expect(screen.getByText('Meaning-based matches')).toBeVisible();
-    expect(screen.getByText('Best candidates after merging')).toBeVisible();
     expect(screen.getByText('Final evidence chosen')).toBeVisible();
-    expect(screen.getByText('Matched the question wording directly.')).toBeVisible();
+    expect(screen.getByText('Refined retrieval query')).toBeVisible();
+    expect(screen.queryByText('Exact wording matches')).not.toBeInTheDocument();
+    expect(screen.queryByText('Best candidates after merging')).not.toBeInTheDocument();
     expect(screen.getByText('Directly cited in the final answer.')).toBeVisible();
   });
 });

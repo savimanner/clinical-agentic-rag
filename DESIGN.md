@@ -11,14 +11,11 @@ human-readable explanation of how retrieval produced those answers.
 For this repo, that means a user should be able to open an assistant response and
 see:
 
-- what exact wording matched
-- what semantically similar chunks were found
-- what survived the merge step
-- what the reranker kept
+- what semantic search returned
 - what final chunks actually supported the answer
 
-The first version should teach how the current hybrid retrieval system works
-without building a separate debug app.
+The current version should teach how the dense-only baseline works without
+building a separate debug app.
 
 ### In Scope
 
@@ -35,7 +32,7 @@ without building a separate debug app.
 - Compare mode
 - Animated replay
 - Learning-mode toggle
-- Retrieval algorithm changes beyond exposing the current hybrid path clearly
+- Reintroducing lexical retrieval, fusion, or reranking into the live path
 - Whole-graph rewrite
 
 ### Existing Foundation
@@ -44,13 +41,11 @@ The system already has the hard retrieval pieces:
 
 - section-aware chunking and lexical index artifacts
 - dense retrieval from Chroma
-- reciprocal-rank-fusion merge
-- LLM reranking
 - thread message persistence
 - a hidden developer trace panel in the UI
 
-This design builds on those pieces instead of introducing a parallel retrieval
-surface.
+This design keeps the dense retrieval path in the live answer flow and leaves
+the lexical artifacts available for future compare or benchmarking work.
 
 ### Core Product Decision
 
@@ -70,10 +65,7 @@ The explanation object should be structured around retrieval stages, for example
 
 - `query_used`
 - `refined_question_used` when a retry actually happened
-- `lexical_hits`
 - `dense_hits`
-- `merged_candidates`
-- `reranked_top_chunks`
 - `final_supporting_chunks`
 
 Rules:
@@ -90,10 +82,8 @@ Inside each assistant message, add a collapsed `Why this answer` panel.
 
 The panel should show stages in order:
 
-1. Exact wording matches
-2. Meaning-based matches
-3. Best candidates after merging
-4. Final evidence chosen
+1. Meaning-based matches
+2. Final evidence chosen
 
 Each stage should show:
 
@@ -104,7 +94,6 @@ Each stage should show:
 
 The frontend should generate the helper text from stage type. Example:
 
-- `Exact wording search found chunks that literally mention the terms in your question.`
 - `Meaning-based search found chunks about the same idea, even when the wording differs.`
 
 The normal UI should stop depending on `debug_trace`. That field can remain for
@@ -132,7 +121,7 @@ This feature is complete only if these paths are covered:
 ### Success Criteria
 
 - A smart non-expert can inspect one answer and explain the difference between
-  lexical and dense retrieval in their own words
+  dense retrieval and final cited evidence in their own words
 - A learner can tell which chunks were considered and which ones actually
   supported the final answer
 - The feature improves trust without turning the UI into a wall of raw data

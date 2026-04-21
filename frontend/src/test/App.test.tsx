@@ -43,23 +43,12 @@ const citation: Citation = {
 };
 
 const retrievalExplanation: RetrievalExplanation = {
-  query_used: 'first line hypertension treatment ace inhibitor',
+  query_used: 'What is the first-line treatment?',
   refined_question_used: 'first line hypertension treatment ace inhibitor',
   lexical_hits: {
-    total_hits: 1,
+    total_hits: 0,
     omitted_hits: 0,
-    items: [
-      {
-        doc_id: citation.doc_id,
-        chunk_id: citation.chunk_id,
-        breadcrumbs: citation.breadcrumbs,
-        snippet: citation.snippet,
-        source_path: citation.source_path,
-        rank: 1,
-        score: 5.2,
-        source_modes: ['lexical'],
-      },
-    ],
+    items: [],
   },
   dense_hits: {
     total_hits: 1,
@@ -78,25 +67,14 @@ const retrievalExplanation: RetrievalExplanation = {
     ],
   },
   merged_candidates: {
-    total_hits: 2,
+    total_hits: 0,
     omitted_hits: 0,
     items: [],
   },
   reranked_top_chunks: {
-    total_hits: 2,
+    total_hits: 0,
     omitted_hits: 0,
-    items: [
-      {
-        doc_id: citation.doc_id,
-        chunk_id: citation.chunk_id,
-        breadcrumbs: citation.breadcrumbs,
-        snippet: citation.snippet,
-        source_path: citation.source_path,
-        rank: 1,
-        score: 0.031,
-        source_modes: ['lexical', 'dense'],
-      },
-    ],
+    items: [],
   },
   final_supporting_chunks: {
     total_hits: 1,
@@ -244,7 +222,7 @@ class FakeClient implements AssistantApiClient {
           citations: [citation],
           used_doc_ids: ['hypertension-guideline'],
           retrieval_explanation: retrievalExplanation,
-          debug_trace: [{ step: 'planner' }],
+          debug_trace: [{ step: 'dense_retrieval' }],
         },
       ],
     };
@@ -412,10 +390,11 @@ describe('App', () => {
 
     await user.click(await screen.findByText('Why this answer'));
 
-    expect(await screen.findByText('Exact wording matches')).toBeVisible();
     expect(screen.getByText('Meaning-based matches')).toBeVisible();
-    expect(screen.getByText('Best candidates after merging')).toBeVisible();
     expect(screen.getByText('Final evidence chosen')).toBeVisible();
+    expect(screen.getByText('Refined retrieval query')).toBeVisible();
+    expect(screen.queryByText('Exact wording matches')).not.toBeInTheDocument();
+    expect(screen.queryByText('Best candidates after merging')).not.toBeInTheDocument();
     expect(screen.getByText('first line hypertension treatment ace inhibitor')).toBeVisible();
 
     firstRender.unmount();
@@ -424,7 +403,7 @@ describe('App', () => {
 
     await user.click(await screen.findByText('Why this answer'));
 
-    expect(await screen.findByText('Exact wording matches')).toBeVisible();
+    expect(await screen.findByText('Meaning-based matches')).toBeVisible();
     expect(screen.getAllByText('Directly cited in the final answer.')[0]).toBeVisible();
   });
 

@@ -11,6 +11,7 @@ from backend.rag.citations import build_citations
 from backend.rag.models import RetrievalExplanation, RetrievalStage, RetrievalStageItem, RetrievedChunk
 
 FINAL_SUPPORT_LIMIT = 4
+CONSERVATIVE_FALLBACK_ANSWER = "I don't know based on the indexed guidelines."
 
 
 @dataclass
@@ -58,6 +59,17 @@ def _select_chunks_by_ids(chunks: list[RetrievedChunk], chunk_ids: list[str]) ->
     return [chunks_by_id[chunk_id] for chunk_id in chunk_ids if chunk_id in chunks_by_id]
 
 
+def _is_conservative_fallback_answer(answer_text: str) -> bool:
+    normalized = " ".join(answer_text.lower().split())
+    if normalized == CONSERVATIVE_FALLBACK_ANSWER.lower():
+        return True
+    fallback_markers = ("don't know", "do not know", "ei tea")
+    evidence_markers = ("guideline", "guidelines", "indexed", "juhend")
+    return any(marker in normalized for marker in fallback_markers) and any(
+        marker in normalized for marker in evidence_markers
+    )
+
+
 def _finalize_retrieval_explanation(
     explanation: RetrievalExplanation,
     *,
@@ -75,7 +87,7 @@ def _finalize_retrieval_explanation(
 
     cited_chunk_id_set = set(cited_chunk_ids)
     source_modes_by_chunk_id = {
-        item.chunk_id: list(item.source_modes) for item in result.reranked_top_chunks.items
+        item.chunk_id: list(item.source_modes) for item in result.dense_hits.items
     }
     result.final_supporting_chunks = RetrievalStage(
         total_hits=len(final_chunks),
@@ -112,7 +124,6 @@ class AgentRunner:
                     "Rewrite the user's question into a single retrieval query for searching the local guideline corpus. "
                     "Preserve exact medical meaning, important qualifiers, and drug names. "
                     "Do not answer the question."
-                    "Write in Estonian"
                 )
             ),
             HumanMessage(
@@ -125,6 +136,27 @@ class AgentRunner:
         ]
         rewritten = model.invoke(prompt).query.strip()
         return rewritten or question
+
+    @staticmethod
+    def _resolve_citations(
+        chunks: list[RetrievedChunk],
+        cited_chunk_ids: list[str],
+    ) -> tuple[list[str], list[Any]]:
+        chunk_ids = {chunk.chunk_id for chunk in chunks}
+        valid_chunk_ids = [chunk_id for chunk_id in cited_chunk_ids if chunk_id in chunk_ids]
+        if valid_chunk_ids:
+            citations = build_citations(chunks, chunk_ids=valid_chunk_ids)
+            if citations:
+                return valid_chunk_ids, citations
+
+        fallback_chunk_ids = [chunk.chunk_id for chunk in chunks[:3]]
+        if not fallback_chunk_ids:
+            return [], []
+
+        citations = build_citations(chunks, chunk_ids=fallback_chunk_ids)
+        if citations:
+            return fallback_chunk_ids, citations
+        return [], []
 
     def _generate_answer(
         self,
@@ -189,7 +221,7 @@ class AgentRunner:
         )
         trace.append(
             {
-                "step": "planner",
+                "step": "dense_retrieval",
                 "query": retrieval_query,
                 "doc_ids": doc_ids or [],
                 **retrieval.debug,
@@ -199,7 +231,7 @@ class AgentRunner:
         chunks = retrieval.top_chunks
         if not chunks:
             payload = {
-                "answer": "I don't know based on the indexed guidelines.",
+                "answer": CONSERVATIVE_FALLBACK_ANSWER,
                 "citations": [],
                 "used_doc_ids": [],
                 "retrieval_explanation": _finalize_retrieval_explanation(
@@ -216,16 +248,17 @@ class AgentRunner:
             return payload
 
         answer = self._generate_answer(question, bounded_turns, chunks)
-        chosen_chunk_ids = answer.cited_chunk_ids or [chunk.chunk_id for chunk in chunks[:3]]
-        citations = build_citations(chunks, chunk_ids=chosen_chunk_ids)
-        if not citations:
-            chosen_chunk_ids = [chunk.chunk_id for chunk in chunks[:3]]
-            citations = build_citations(chunks, chunk_ids=chosen_chunk_ids)
+        chosen_chunk_ids, citations = self._resolve_citations(chunks, answer.cited_chunk_ids)
 
         used_doc_ids = sorted({citation.doc_id for citation in citations})
         answer_text = answer.answer
-        if not citations and "guidelines" not in answer_text.lower():
-            answer_text = "I don't know based on the indexed guidelines."
+        final_chunks = _select_chunks_by_ids(chunks, chosen_chunk_ids)
+        if _is_conservative_fallback_answer(answer_text) or not citations:
+            answer_text = CONSERVATIVE_FALLBACK_ANSWER
+            chosen_chunk_ids = []
+            citations = []
+            used_doc_ids = []
+            final_chunks = []
 
         payload = {
             "answer": answer_text,
@@ -236,7 +269,7 @@ class AgentRunner:
                 original_query=question,
                 retrieval_query=retrieval_query,
                 cited_chunk_ids=chosen_chunk_ids,
-                final_chunks=_select_chunks_by_ids(chunks, chosen_chunk_ids),
+                final_chunks=final_chunks,
             ),
         }
         trace.append(
