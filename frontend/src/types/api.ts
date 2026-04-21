@@ -6,6 +6,34 @@ export interface Citation {
   source_path: string;
 }
 
+export interface RetrievalStageItem {
+  doc_id: string;
+  chunk_id: string;
+  breadcrumbs: string;
+  snippet: string;
+  source_path: string;
+  rank?: number | null;
+  score?: number | null;
+  source_modes?: Array<'lexical' | 'dense'>;
+  cited_directly?: boolean | null;
+}
+
+export interface RetrievalStage {
+  total_hits: number;
+  omitted_hits: number;
+  items: RetrievalStageItem[];
+}
+
+export interface RetrievalExplanation {
+  query_used: string;
+  refined_question_used?: string | null;
+  lexical_hits: RetrievalStage;
+  dense_hits: RetrievalStage;
+  merged_candidates: RetrievalStage;
+  reranked_top_chunks: RetrievalStage;
+  final_supporting_chunks: RetrievalStage;
+}
+
 export interface ThreadMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -13,6 +41,7 @@ export interface ThreadMessage {
   created_at: string;
   citations?: Citation[];
   used_doc_ids?: string[];
+  retrieval_explanation?: RetrievalExplanation | null;
   debug_trace?: Array<Record<string, unknown>> | null;
 }
 

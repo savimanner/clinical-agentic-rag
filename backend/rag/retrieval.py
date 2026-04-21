@@ -6,7 +6,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.agent.schemas import RerankSelection
 from backend.core.models import get_chat_model
-from backend.rag.models import RetrievedChunk
+from backend.rag.models import RetrievalExplanation, RetrievalStage, RetrievalStageItem, RetrievedChunk
+
+EXPLANATION_STAGE_LIMIT = 4
 
 
 def _serialize_candidates(chunks: list[RetrievedChunk], *, limit: int = 32, excerpt_chars: int = 420) -> str:
@@ -25,7 +27,45 @@ class RetrievalResult:
     query: str
     candidates: list[RetrievedChunk]
     top_chunks: list[RetrievedChunk]
+    explanation: RetrievalExplanation
     debug: dict[str, object]
+
+
+def _snippet(text: str, *, limit: int = 180) -> str:
+    collapsed = " ".join(text.split()).strip()
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[: limit - 3].rstrip()}..."
+
+
+def _build_stage(
+    chunks: list[RetrievedChunk],
+    *,
+    limit: int = EXPLANATION_STAGE_LIMIT,
+    source_modes_by_chunk_id: dict[str, list[str]] | None = None,
+    cited_chunk_ids: set[str] | None = None,
+) -> RetrievalStage:
+    items = [
+        RetrievalStageItem(
+            doc_id=chunk.doc_id,
+            chunk_id=chunk.chunk_id,
+            breadcrumbs=chunk.breadcrumbs,
+            snippet=_snippet(chunk.text),
+            source_path=chunk.source_path,
+            rank=index,
+            score=round(chunk.score, 6) if chunk.score is not None else None,
+            source_modes=list(source_modes_by_chunk_id.get(chunk.chunk_id, []))
+            if source_modes_by_chunk_id
+            else [],
+            cited_directly=chunk.chunk_id in cited_chunk_ids if cited_chunk_ids is not None else None,
+        )
+        for index, chunk in enumerate(chunks[:limit], start=1)
+    ]
+    return RetrievalStage(
+        total_hits=len(chunks),
+        omitted_hits=max(len(chunks) - len(items), 0),
+        items=items,
+    )
 
 
 class HybridRetrievalPipeline:
@@ -108,10 +148,40 @@ class HybridRetrievalPipeline:
             limit=self.settings.retrieval_candidate_k,
         )
         top_chunks, rerank_reasoning = self._rerank(query, candidates)
+        source_modes_by_chunk_id: dict[str, list[str]] = {}
+        lexical_ids = {chunk.chunk_id for chunk in lexical_hits}
+        dense_ids = {chunk.chunk_id for chunk in dense_hits}
+        for chunk_id in lexical_ids | dense_ids:
+            modes: list[str] = []
+            if chunk_id in lexical_ids:
+                modes.append("lexical")
+            if chunk_id in dense_ids:
+                modes.append("dense")
+            source_modes_by_chunk_id[chunk_id] = modes
+
         return RetrievalResult(
             query=query,
             candidates=candidates,
             top_chunks=top_chunks,
+            explanation=RetrievalExplanation(
+                query_used=query,
+                lexical_hits=_build_stage(
+                    lexical_hits,
+                    source_modes_by_chunk_id={chunk.chunk_id: ["lexical"] for chunk in lexical_hits},
+                ),
+                dense_hits=_build_stage(
+                    dense_hits,
+                    source_modes_by_chunk_id={chunk.chunk_id: ["dense"] for chunk in dense_hits},
+                ),
+                merged_candidates=_build_stage(
+                    candidates,
+                    source_modes_by_chunk_id=source_modes_by_chunk_id,
+                ),
+                reranked_top_chunks=_build_stage(
+                    top_chunks,
+                    source_modes_by_chunk_id=source_modes_by_chunk_id,
+                ),
+            ),
             debug={
                 "lexical_hit_count": len(lexical_hits),
                 "dense_hit_count": len(dense_hits),

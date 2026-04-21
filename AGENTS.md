@@ -20,6 +20,20 @@ This repository contains a local-first agentic RAG application built with FastAP
 - Health check:
   - `http://127.0.0.1:8000/api/health`
 
+## Frontend runtime
+
+- Frontend app lives in `frontend/`
+- Install frontend dependencies with:
+  - `cd frontend && npm install`
+- Start the frontend dev server with:
+  - `cd frontend && npm run dev`
+- Frontend dev URL:
+  - `http://127.0.0.1:5173`
+- The Vite dev server proxies `/api` to:
+  - `http://127.0.0.1:8000`
+- To build the frontend for FastAPI to serve from `frontend/dist`, run:
+  - `cd frontend && npm run build`
+
 ## Ingestion workflow
 
 Run these from the repository root as needed:

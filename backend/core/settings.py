@@ -37,9 +37,6 @@ class Settings(BaseSettings):
     chunk_overlap_chars: int = 120
     chunk_hard_max_chars: int = 1600
 
-    agent_max_subquestions: int = 3
-    agent_max_iterations: int = 2
-    agent_max_tool_calls: int = 6
     agent_history_turn_limit: int = 4
     debug_context_limit: int = 8
 

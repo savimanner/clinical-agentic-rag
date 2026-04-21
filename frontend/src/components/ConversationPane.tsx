@@ -2,6 +2,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { formatTimestamp } from '../lib/format';
+import { RetrievalExplanationPanel } from './RetrievalExplanationPanel';
 import type { Citation, ThreadDetail, ThreadMessage } from '../types/api';
 
 interface ConversationPaneProps {
@@ -64,6 +65,10 @@ function MessageBubble({
             </p>
           ) : null}
         </div>
+      ) : null}
+
+      {isAssistant && message.retrieval_explanation ? (
+        <RetrievalExplanationPanel explanation={message.retrieval_explanation} />
       ) : null}
 
       {isAssistant && message.debug_trace?.length ? (

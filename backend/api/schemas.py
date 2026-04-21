@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from backend.content.catalog import DocumentSummary
-from backend.rag.models import Citation
+from backend.rag.models import Citation, RetrievalExplanation
 
 
 class ChatRequest(BaseModel):
@@ -19,6 +19,7 @@ class ChatResponse(BaseModel):
     answer: str
     citations: list[Citation] = Field(default_factory=list)
     used_doc_ids: list[str] = Field(default_factory=list)
+    retrieval_explanation: RetrievalExplanation | None = None
     debug_trace: list[dict] | None = None
 
 
@@ -41,6 +42,7 @@ class ThreadMessage(BaseModel):
     created_at: datetime
     citations: list[Citation] = Field(default_factory=list)
     used_doc_ids: list[str] = Field(default_factory=list)
+    retrieval_explanation: RetrievalExplanation | None = None
     debug_trace: list[dict[str, Any]] | None = None
 
 

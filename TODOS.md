@@ -27,3 +27,17 @@ Cons: Requires curation and occasional maintenance as the corpus evolves.
 Context: The current change adds regression, integration, and API-level tests. A benchmark suite would sit above those tests and measure end-to-end retrieval quality against a stable question set.
 
 Depends on / blocked by: Depends on the canonical schema and hybrid retrieval path being in place first.
+
+## Add Retrieval Compare Mode
+
+What: Add a future compare mode that runs multiple retrieval strategies for one question and shows how dense-only, lexical-only, and hybrid retrieval differ.
+
+Why: The new retrieval explanation panel will teach one answer path well, but compare mode is the strongest follow-on for helping a learner understand why hybrid retrieval wins or fails on a given question.
+
+Pros: Makes retrieval tradeoffs concrete, creates a strong teaching surface, and builds naturally on top of the explanation object introduced in the first pass.
+
+Cons: Increases per-query runtime cost, expands the UI surface, and is easy to overbuild if added before the base explanation panel proves useful.
+
+Context: The approved design for the retrieval explanation panel explicitly deferred compare mode from v1. It should remain deferred until the explanation object and `Why this answer` panel are live and validated.
+
+Depends on / blocked by: Blocked by the explanation panel shipping first and getting some real usage or feedback.

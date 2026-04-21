@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from backend.agent.graph import AgentDependencies
-from backend.agent.runner import AgentRunner
+from backend.agent.runner import AgentDependencies, AgentRunner
 from backend.content.catalog import ContentCatalog
 from backend.core.settings import Settings, get_settings
 from backend.core.tracing import configure_langsmith
