@@ -6,9 +6,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from backend.agent.graph import AgentDependencies
-from backend.agent.runner import AgentRunner
-from backend.agent.schemas import AnswerDraft, EvidenceGrade
+from backend.agent.runner import AgentDependencies, AgentRunner
+from backend.agent.schemas import AnswerDraft, RewrittenQuery
 from backend.api.app import create_app
 from backend.content.catalog import DocumentSummary
 from backend.core.settings import Settings
@@ -107,14 +106,14 @@ class StructuredResponder:
         self.schema = schema
 
     def invoke(self, _prompt):
-        if self.schema is EvidenceGrade:
-            return self.parent.grade_response
+        if self.schema is RewrittenQuery:
+            return self.parent.rewrite_response
         return self.parent.answer_response
 
 
 class FakeChatModel:
-    def __init__(self, grade_response, answer_response):
-        self.grade_response = grade_response
+    def __init__(self, rewrite_response, answer_response):
+        self.rewrite_response = rewrite_response
         self.answer_response = answer_response
 
     def with_structured_output(self, schema):
@@ -158,15 +157,15 @@ def build_test_client(tmp_path: Path) -> tuple[TestClient, FakeRuntime]:
     return TestClient(app), runtime
 
 
-def build_real_agent_client(tmp_path: Path, monkeypatch, *, top_chunks, grade_response, answer_response):
+def build_real_agent_client(tmp_path: Path, monkeypatch, *, top_chunks, rewrite_response, answer_response):
     thread_store = LocalThreadStore(tmp_path / "storage" / "threads")
     settings = Settings(
         openrouter_api_key="test-key",
         storage_root=tmp_path / "storage",
     )
     monkeypatch.setattr(
-        "backend.agent.graph.get_chat_model",
-        lambda _settings: FakeChatModel(grade_response, answer_response),
+        "backend.agent.runner.get_chat_model",
+        lambda _settings: FakeChatModel(rewrite_response, answer_response),
     )
     agent = AgentRunner(
         AgentDependencies(
@@ -341,7 +340,7 @@ def test_api_chat_uses_real_agent_runner_and_conservative_fallback(tmp_path: Pat
         tmp_path,
         monkeypatch,
         top_chunks=[],
-        grade_response=EvidenceGrade(sufficient=False, reasoning="No evidence."),
+        rewrite_response=RewrittenQuery(query="dose query"),
         answer_response=AnswerDraft(answer="unused"),
     )
 
@@ -351,6 +350,13 @@ def test_api_chat_uses_real_agent_runner_and_conservative_fallback(tmp_path: Pat
     assert response.json()["answer"] == "I don't know based on the indexed guidelines."
     assert response.json()["citations"] == []
     assert response.json()["retrieval_explanation"]["query_used"] == "What is the dose?"
+    assert response.json()["retrieval_explanation"]["refined_question_used"] == "dose query"
+    assert [entry["step"] for entry in response.json()["debug_trace"]] == [
+        "user",
+        "rewrite_query",
+        "planner",
+        "generate_answer",
+    ]
 
 
 def test_api_chat_returns_citations_from_real_agent_runner(tmp_path: Path, monkeypatch):
@@ -367,18 +373,26 @@ def test_api_chat_returns_citations_from_real_agent_runner(tmp_path: Path, monke
                 source_path="demo.md",
             )
         ],
-        grade_response=EvidenceGrade(sufficient=True, reasoning="Enough evidence."),
+        rewrite_response=RewrittenQuery(query="mild pain query"),
         answer_response=AnswerDraft(
             answer="Use ibuprofen for mild pain.",
             cited_chunk_ids=["demo-guideline::chunk_0000"],
         ),
     )
 
-    response = client.post("/api/chat", json={"question": "What should I use for mild pain?"})
+    response = client.post("/api/chat", json={"question": "What should I use for mild pain?", "debug": True})
 
     assert response.status_code == 200
     assert response.json()["used_doc_ids"] == ["demo-guideline"]
     assert response.json()["citations"][0]["chunk_id"] == "demo-guideline::chunk_0000"
+    assert response.json()["retrieval_explanation"]["query_used"] == "What should I use for mild pain?"
+    assert response.json()["retrieval_explanation"]["refined_question_used"] == "mild pain query"
     assert response.json()["retrieval_explanation"]["final_supporting_chunks"]["items"][0]["chunk_id"] == (
         "demo-guideline::chunk_0000"
     )
+    assert [entry["step"] for entry in response.json()["debug_trace"]] == [
+        "user",
+        "rewrite_query",
+        "planner",
+        "generate_answer",
+    ]
