@@ -75,7 +75,8 @@ Recommended embedding model:
 
 ## Agent/runtime notes
 
-- The retrieval loop is implemented in `backend/agent/graph.py`.
+- The live question-answering runtime is implemented in `backend/agent/runner.py` and wired up in `backend/core/runtime.py`.
+- The current answer path is: query rewrite, dense semantic retrieval from Chroma, answer generation, then citation/explanation assembly.
 - Metadata tools like `search_library` and `get_document_outline` should lead into retrieval, not terminate the loop early.
 - If changing control flow, verify both:
   - automated tests in `tests/`
